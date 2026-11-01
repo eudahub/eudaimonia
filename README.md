@@ -10,6 +10,10 @@ files in tabs, read only. The editor plugin, building and running follow.
 
 ## Using it
 
+- A project is a directory. Until one is opened, the left side lists the
+  recent projects, most recently used first: activate one (double click or
+  Enter) or use **Open Project Directory...** below the list. No project is
+  opened automatically at start.
 - **File → Open Project Directory** (Ctrl+Shift+O) shows a directory as a
   tree on the left. Activate a file (double click or Enter) to open it in a
   tab on the right; a file already open gets its tab back.
@@ -42,6 +46,13 @@ fetches it.
 cmake -S . -B build
 cmake --build build
 ./build/eudaimonia
+```
+
+The fast offline tests (Qt Test, `qt6-base-dev`) are built by default
+(`-DEUDAIMONIA_BUILD_TESTS=OFF` leaves them out):
+
+```sh
+ctest --test-dir build --output-on-failure
 ```
 
 ## License

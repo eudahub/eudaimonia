@@ -7,8 +7,10 @@
 
 class MruTabWidget;
 class QFileSystemModel;
+class QListWidget;
 class QMenu;
 class QSplitter;
+class QStackedWidget;
 class QTreeView;
 
 namespace eudaimonia {
@@ -32,12 +34,15 @@ private:
     void createMenus();
     void chooseProject();
     void chooseFile();
-    void updateRecentProjectsMenu();
+    void updateRecentProjects();
     void updateTitle();
     void restoreState();
     void saveState() const;
 
     QSplitter* m_splitter = nullptr;
+    // The recent projects until a project is opened, then the project tree
+    QStackedWidget* m_side = nullptr;
+    QListWidget* m_recentList = nullptr;
     QTreeView* m_tree = nullptr;
     QFileSystemModel* m_model = nullptr;
     MruTabWidget* m_tabs = nullptr;

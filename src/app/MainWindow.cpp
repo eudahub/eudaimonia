@@ -14,14 +14,19 @@
 #include <QFontDatabase>
 #include <QHeaderView>
 #include <QKeySequence>
+#include <QLabel>
+#include <QListWidget>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QPushButton>
 #include <QSettings>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QStatusBar>
 #include <QTreeView>
+#include <QVBoxLayout>
 
 namespace eudaimonia {
 namespace {
@@ -46,10 +51,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_tree->setModel(m_model);
     m_tree->setHeaderHidden(true);
     for (int column = 1; column < m_model->columnCount(); ++column) m_tree->hideColumn(column);
-    m_tree->setEnabled(false);
     connect(m_tree, &QTreeView::activated, this, [this](const QModelIndex& index) {
         if (!m_model->isDir(index)) openFile(m_model->filePath(index));
     });
+
+    m_recentList = new QListWidget;
+    m_recentList->setTextElideMode(Qt::ElideMiddle);
+    connect(m_recentList, &QListWidget::itemActivated, this, [this](QListWidgetItem* item) {
+        openProject(item->data(Qt::UserRole).toString());
+    });
+    auto* openButton = new QPushButton(tr("Open Project Directory..."));
+    connect(openButton, &QPushButton::clicked, this, &MainWindow::chooseProject);
+    auto* start = new QWidget;
+    auto* startLayout = new QVBoxLayout(start);
+    startLayout->setContentsMargins(0, 0, 0, 0);
+    startLayout->addWidget(new QLabel(tr("Recent projects")));
+    startLayout->addWidget(m_recentList, 1);
+    startLayout->addWidget(openButton);
+
+    m_side = new QStackedWidget;
+    m_side->addWidget(start);
+    m_side->addWidget(m_tree);
 
     m_tabs = new MruTabWidget;
     m_tabs->setDocumentMode(true);
@@ -58,7 +80,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(m_tabs, &QTabWidget::currentChanged, this, [this] { updateTitle(); });
 
     m_splitter = new QSplitter(Qt::Horizontal);
-    m_splitter->addWidget(m_tree);
+    m_splitter->addWidget(m_side);
     m_splitter->addWidget(m_tabs);
     m_splitter->setStretchFactor(0, 0);
     m_splitter->setStretchFactor(1, 1);
@@ -66,7 +88,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setCentralWidget(m_splitter);
 
     createMenus();
-    updateRecentProjectsMenu();
+    updateRecentProjects();
     updateTitle();
     resize(1200, 800);
     restoreState();
@@ -101,11 +123,11 @@ bool MainWindow::openProject(const QString& directory) {
     m_projectDirectory = path;
     m_model->setRootPath(path);
     m_tree->setRootIndex(m_model->index(path));
-    m_tree->setEnabled(true);
+    m_side->setCurrentWidget(m_tree);
     QString error;
     if (!m_recent.remember(path, &error))
         statusBar()->showMessage(tr("Cannot save the recent projects: %1").arg(error), 5000);
-    updateRecentProjectsMenu();
+    updateRecentProjects();
     updateTitle();
     return true;
 }
@@ -162,11 +184,18 @@ void MainWindow::chooseFile() {
     for (const QString& path : files) openFile(path);
 }
 
-void MainWindow::updateRecentProjectsMenu() {
+void MainWindow::updateRecentProjects() {
     m_recentMenu->clear();
-    for (const QString& path : m_recent.paths())
+    m_recentList->clear();
+    for (const QString& path : m_recent.paths()) {
         m_recentMenu->addAction(path, this, [this, path] { openProject(path); });
+        auto* item = new QListWidgetItem(QStringLiteral("%1 — %2").arg(QFileInfo(path).fileName(), path));
+        item->setData(Qt::UserRole, path);
+        item->setToolTip(path);
+        m_recentList->addItem(item);
+    }
     m_recentMenu->setEnabled(!m_recent.paths().isEmpty());
+    if (m_recentList->count() > 0) m_recentList->setCurrentRow(0);
 }
 
 void MainWindow::updateTitle() {
