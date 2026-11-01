@@ -52,6 +52,10 @@ add_subdirectory(plugins/cmake)
 
 add_executable(eudaimonia
     src/app/main.cpp
+    src/app/BuildMonitor.cpp
+    src/app/BuildMonitor.h
+    src/app/BuildPanel.cpp
+    src/app/BuildPanel.h
     src/app/MainWindow.cpp
     src/app/MainWindow.h
     src/app/PluginManager.cpp
@@ -164,6 +168,13 @@ if(EUDAIMONIA_BUILD_TESTS)
     target_link_libraries(test_build_monitor PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME build_monitor COMMAND test_build_monitor)
     set_tests_properties(build_monitor PROPERTIES TIMEOUT 30)
+
+    # The build panel on real processes: output, stopping, lack of memory.
+    add_executable(test_build_panel tests/test_build_panel.cpp src/app/BuildPanel.cpp src/app/BuildMonitor.cpp)
+    target_include_directories(test_build_panel PRIVATE src/app)
+    target_link_libraries(test_build_panel PRIVATE Qt6::Widgets Qt6::Test eudaimonia::plugin-api)
+    add_test(NAME build_panel COMMAND test_build_panel)
+    set_tests_properties(build_panel PROPERTIES TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # The CMake plugin on a small project configured and built by the test.
     add_executable(test_cmake_plugin tests/test_cmake_plugin.cpp)

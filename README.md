@@ -48,14 +48,27 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   modified files and builds the chosen target (`cmake --build build
   --parallel <N> --target <name>`, N being the number of logical processors,
   unless `CMAKE_BUILD_PARALLEL_LEVEL` is set; everything when there is no
-  target), **Run** (Shift+F10) builds it and
-  then starts the program in its build directory. Both run in a terminal
-  window — gnome-terminal when installed, else the desktop's (konsole,
+  target), **Run** (Shift+F10) builds it and, when the build succeeded,
+  starts the program in its build directory, in a terminal window —
+  gnome-terminal when installed, else the desktop's (konsole,
   xfce4-terminal, mate-terminal, qterminal, xterm); the setting
   `run/terminal` names another — which stays open with the exit status until
   Enter is pressed. **Build → Configure Project** configures again; the
-  targets are read again whenever the window becomes active (a build
-  reconfigures by itself after `CMakeLists.txt` changed).
+  targets are read again whenever the window becomes active and after a
+  build (which reconfigures by itself after `CMakeLists.txt` changed).
+- The **Build panel** below the editors shows the build's output, how long
+  it has been running, the memory the build takes now and at most (all its
+  processes: cmake, ninja, compilers, linkers) and the memory the computer
+  has left (and the swap in use, when there is swap). At the end it says how
+  long the build took, when it finished and the most memory it took.
+  **Stop** (Ctrl+F2) stops the whole build.
+- **A build is stopped at once when memory runs short**, before the
+  computer swaps — a swapping build makes the computer useless for long and
+  wears the disk: when less memory is available than 5 % of it (at least
+  2 GiB; 9.6 GiB of 192 GiB, 2 GiB of 20 GiB), or when the swap in use grows
+  by more than 256 MiB during the build. Memory is looked at four times a
+  second, and the build's whole process group is killed; the panel says why.
+  Fewer links at once (below) keep a big link from getting there.
 - **Build → Build Tool** chooses what builds a new `build/`: **Ninja** (the
   default when installed), **Unix Makefiles**, or CMake's own default (make,
   or `CMAKE_GENERATOR` from the environment). A `build/` configured already

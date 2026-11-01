@@ -15,6 +15,7 @@
 class MruTabWidget;
 class QAction;
 class QComboBox;
+class QDockWidget;
 class QFileSystemModel;
 class QProcess;
 class QLabel;
@@ -30,6 +31,8 @@ class EditorView;
 }
 
 namespace eudaimonia {
+
+class BuildPanel;
 
 // The project directory as a tree on the left, open files in MRU tabs on the
 // right, each in an editor of the editor plugin (spp-editor).
@@ -90,8 +93,10 @@ private:
     void chooseBackend(const QString& backend);
     // Reads the targets of the configured project into the target list.
     void loadTargets();
-    // Builds the chosen target in a terminal, and with `run` starts it there.
+    // Builds the chosen target in the build panel, and with `run` starts the
+    // program in a terminal when the build succeeded.
     void buildAndRun(bool run);
+    void buildFinished(bool success);
     void updateBuildActions();
     QString buildDirectory() const;
 
@@ -118,7 +123,13 @@ private:
     QAction* m_configureAction = nullptr;
     QAction* m_buildAction = nullptr;
     QAction* m_runAction = nullptr;
+    QAction* m_stopAction = nullptr;
     QMenu* m_backendMenu = nullptr;
+    QDockWidget* m_buildDock = nullptr;
+    BuildPanel* m_buildPanel = nullptr;
+    // The program to run when the build in progress succeeds; empty for Build.
+    QString m_runAfterBuild;
+    QString m_runName;
     QPointer<QProcess> m_configuring;
 };
 

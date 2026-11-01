@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "MainWindow.h"
 
+#include "BuildPanel.h"
 #include "Terminal.h"
 #include "build_info.h"
 
@@ -16,6 +17,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QDockWidget>
 #include <QFile>
 #include <QFileInfo>
 #include <QFileSystemModel>
@@ -382,12 +384,27 @@ void MainWindow::createBuildBar() {
                                    [this] { buildAndRun(true); });
     m_runAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F10));
     m_runAction->setToolTip(tr("Build the chosen target and run it (Shift+F10)"));
+    m_stopAction = build->addAction(tr("&Stop"), this, [this] { m_buildPanel->stop(); });
+    m_stopAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F2));
+    m_stopAction->setToolTip(tr("Stop the build (Ctrl+F2)"));
     build->addSeparator();
     m_configureAction = build->addAction(tr("&Configure Project"), this, [this] { configure(); });
     m_backendMenu = build->addMenu(tr("Build &Tool"));
     connect(m_backendMenu, &QMenu::aboutToShow, this, &MainWindow::fillBackendMenu);
     bar->addAction(m_buildAction);
     bar->addAction(m_runAction);
+    bar->addAction(m_stopAction);
+
+    // The build's output, time and memory, below the editors.
+    m_buildPanel = new BuildPanel;
+    connect(m_buildPanel, &BuildPanel::started, this, &MainWindow::updateBuildActions);
+    connect(m_buildPanel, &BuildPanel::finished, this, &MainWindow::buildFinished);
+    m_buildDock = new QDockWidget(tr("Build"), this);
+    m_buildDock->setObjectName(QStringLiteral("buildDock"));
+    m_buildDock->setWidget(m_buildPanel);
+    addDockWidget(Qt::BottomDockWidgetArea, m_buildDock);
+    m_buildDock->hide();
+    build->addAction(m_buildDock->toggleViewAction());
     updateBuildActions();
 }
 
@@ -559,7 +576,9 @@ void MainWindow::loadTargets() {
 }
 
 void MainWindow::updateBuildActions() {
-    const bool idle = m_buildSystem && !m_configuring;
+    const bool building = m_buildPanel && m_buildPanel->isRunning();
+    if (m_stopAction) m_stopAction->setEnabled(building);
+    const bool idle = m_buildSystem && !m_configuring && !building;
     m_configureAction->setEnabled(idle);
     m_buildAction->setEnabled(idle);
     m_runAction->setEnabled(idle && m_targetBox->count() > 0);
@@ -573,25 +592,31 @@ void MainWindow::buildAndRun(bool run) {
                                   m_plugins.missingMessage(QStringLiteral(EUDAIMONIA_BUILDSYSTEM_IID), tr("Building")));
         return;
     }
-    if (!saveAll()) return;
+    if (m_buildPanel->isRunning() || !saveAll()) return;
     const int index = m_targetBox->currentIndex();
     const BuildTarget* target = index >= 0 && index < m_targets.size() ? &m_targets[index] : nullptr;
     if (run && !target) return;
     // Without a chosen target Build builds everything.
     const BuildCommand build = m_buildSystem->buildCommand(buildDirectory(), target ? target->name : QString());
-    QString script = QStringLiteral("cd %1 && %2")
-                         .arg(Terminal::quote(build.workingDirectory), Terminal::command(build.program, build.arguments));
-    QString title = tr("Build %1").arg(target ? target->name : QFileInfo(m_projectDirectory).fileName());
-    if (run) {
-        // The program runs in its build directory, as CLion runs it.
-        const QString directory = QFileInfo(target->executable).absolutePath();
-        script += QStringLiteral(" && cd %1 && %2")
-                      .arg(Terminal::quote(directory), Terminal::command(target->executable, {}));
-        title = tr("Run %1").arg(target->name);
-    }
+    m_runAfterBuild = run ? target->executable : QString();
+    m_runName = run ? target->name : QString();
+    m_buildDock->show();
+    m_buildPanel->start(build, tr("Build %1").arg(target ? target->name : QFileInfo(m_projectDirectory).fileName()));
+}
+
+void MainWindow::buildFinished(bool success) {
+    updateBuildActions();
+    // A build reconfigures by itself after CMakeLists.txt changed.
+    loadTargets();
+    const QString program = m_runAfterBuild;
+    m_runAfterBuild.clear();
+    if (!success || program.isEmpty()) return;
+    // The program runs in its build directory, as CLion runs it.
+    const QString script = QStringLiteral("cd %1 && %2")
+                               .arg(Terminal::quote(QFileInfo(program).absolutePath()), Terminal::command(program, {}));
+    const QString title = tr("Run %1").arg(m_runName);
     QString error;
-    if (!Terminal::run(script, m_projectDirectory, title, &error))
-        QMessageBox::warning(this, title, error);
+    if (!Terminal::run(script, m_projectDirectory, title, &error)) QMessageBox::warning(this, title, error);
 }
 
 void MainWindow::chooseProject() {
@@ -667,6 +692,13 @@ void MainWindow::saveState() const {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    // A running build is stopped with the window (BuildPanel's destructor).
+    if (m_buildPanel->isRunning()
+        && QMessageBox::question(this, tr("Build Running"), tr("A build is running. Stop it and quit?"))
+               != QMessageBox::Yes) {
+        event->ignore();
+        return;
+    }
     // Each tab with unsaved changes asks first; Cancel keeps the window.
     if (!m_tabs->requestCloseAllTabs()) {
         event->ignore();
