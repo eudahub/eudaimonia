@@ -83,6 +83,18 @@ struct MainWindow::Editor : spp::EditorViewListener {
     void textChanged() override {
         if (!languageFile.isEmpty() && window->m_language) window->m_language->changed(languageFile, view->text());
     }
+    // Ctrl over a word: a link when the language server knows its definition.
+    void linkQueried(spp::TextPosition position) override {
+        if (languageFile.isEmpty() || !window->m_language) return;  // no server: no links
+        QPointer<QWidget> asker = page;
+        MainWindow* owner = window;
+        window->m_language->findDefinition(
+            languageFile, {position.line, position.column}, [owner, asker, position](const QList<SourceLocation>& found) {
+                // The tab may be gone by the time the server answers.
+                if (!asker) return;
+                if (spp::EditorView* view = owner->viewOf(asker)) view->answerLink(position, !found.isEmpty());
+            });
+    }
     // Ctrl+click: the definition of what was clicked (the cursor is there).
     void linkActivated(spp::TextPosition) override {
         if (window->m_tabs->currentWidget() == page) window->goToDefinition();
