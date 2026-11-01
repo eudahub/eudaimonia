@@ -56,4 +56,22 @@ if(EUDAIMONIA_BUILD_TESTS)
     target_link_libraries(test_recent_projects PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME recent_projects COMMAND test_recent_projects)
     set_tests_properties(recent_projects PROPERTIES TIMEOUT 20)
+
+    # Two plugins with the same IID, in their own directories.
+    foreach(name first second)
+        add_library(test_plugin_${name} MODULE tests/plugin/TestPlugin.cpp tests/plugin/TestInterface.h)
+        target_compile_definitions(test_plugin_${name} PRIVATE TEST_PLUGIN_NAME="${name}")
+        target_link_libraries(test_plugin_${name} PRIVATE Qt6::Core)
+        set_target_properties(test_plugin_${name} PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-plugins/${name}")
+    endforeach()
+    add_executable(test_plugin_manager tests/test_plugin_manager.cpp src/app/PluginManager.cpp)
+    target_include_directories(test_plugin_manager PRIVATE src/app tests)
+    target_compile_definitions(test_plugin_manager PRIVATE
+        EUDAIMONIA_PLUGIN_DIR_FROM_BIN="${EUDAIMONIA_PLUGIN_DIR_FROM_BIN}"
+        TEST_PLUGIN_DIR="${CMAKE_BINARY_DIR}/test-plugins")
+    target_link_libraries(test_plugin_manager PRIVATE Qt6::Core Qt6::Test)
+    add_dependencies(test_plugin_manager test_plugin_first test_plugin_second)
+    add_test(NAME plugin_manager COMMAND test_plugin_manager)
+    set_tests_properties(plugin_manager PROPERTIES TIMEOUT 20)
 endif()
