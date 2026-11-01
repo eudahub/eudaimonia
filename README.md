@@ -63,6 +63,18 @@ each plugin file is read; a plugin is loaded when its interface is first
 needed. When two files provide the same interface, the first one found is
 used.
 
+Eudaimonia's own plugin interfaces are headers in `api/` (CMake target
+`eudaimonia::plugin-api`), with IIDs `io.github.eudahub.eudaimonia.<Interface>/<n>`;
+its plugins are in `plugins/`:
+
+- `eudaimonia-cmake` (`eudaimonia::BuildSystem`): CMake projects — the
+  command configuring a project (`cmake -S <project> -B <build>`, with no
+  options of its own) and building it (`cmake --build <build>`, or one
+  target), and the project's targets with their type and the program each
+  executable builds, read from CMake's
+  [file API](https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html)
+  after configuring (CMake 3.14 or later), not by parsing `CMakeLists.txt`.
+
 A feature whose plugin is missing reports an error that lists the searched
 directories; there are no built-in replacements. **Help → Plugins** shows the
 searched directories and what was found in them, and so does
@@ -96,7 +108,8 @@ sudo cmake --install build
 ```
 
 The fast offline tests (Qt Test, `qt6-base-dev`) are built by default
-(`-DEUDAIMONIA_BUILD_TESTS=OFF` leaves them out):
+(`-DEUDAIMONIA_BUILD_TESTS=OFF` leaves them out); the CMake plugin's test
+configures and builds a small project, so it needs cmake and a C++ compiler:
 
 ```sh
 ctest --test-dir build --output-on-failure

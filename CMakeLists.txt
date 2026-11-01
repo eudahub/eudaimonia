@@ -46,6 +46,10 @@ FetchContent_Declare(siplasplas_plugins
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(siplasplas_plugins)
 
+# Eudaimonia's own plugin interfaces and plugins.
+add_subdirectory(api)
+add_subdirectory(plugins/cmake)
+
 add_executable(eudaimonia
     src/app/main.cpp
     src/app/MainWindow.cpp
@@ -150,4 +154,13 @@ if(EUDAIMONIA_BUILD_TESTS)
     add_dependencies(test_plugin_manager test_plugin_first test_plugin_second)
     add_test(NAME plugin_manager COMMAND test_plugin_manager)
     set_tests_properties(plugin_manager PROPERTIES TIMEOUT 20)
+
+    # The CMake plugin on a small project configured and built by the test.
+    add_executable(test_cmake_plugin tests/test_cmake_plugin.cpp)
+    target_compile_definitions(test_cmake_plugin PRIVATE
+        CMAKE_PLUGIN_FILE="$<TARGET_FILE:eudaimonia-cmake>")
+    target_link_libraries(test_cmake_plugin PRIVATE eudaimonia::plugin-api Qt6::Core Qt6::Test)
+    add_dependencies(test_cmake_plugin eudaimonia-cmake)
+    add_test(NAME cmake_plugin COMMAND test_cmake_plugin)
+    set_tests_properties(cmake_plugin PROPERTIES TIMEOUT 120)
 endif()
