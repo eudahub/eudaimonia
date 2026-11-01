@@ -50,6 +50,12 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   where a click opens the place; an edit removes the underlines until the
   server checked the new text. **Navigate → Go to Definition** (F12) opens
   the definition of the symbol at the cursor.
+- **Navigate → Back** (Ctrl+Alt+Left) returns to where one was before, across
+  files, and **Forward** (Ctrl+Alt+Right) undoes it: places are kept when
+  another tab is shown (also for a file opened), before a jump (Go to
+  Definition, a problem or a compiler's message clicked) and when the cursor
+  moves ten lines or more at once; one a line, at most 100. A file whose tab
+  was closed opens again.
 - **Building and running** a CMake project (one with `CMakeLists.txt`): when
   the project opens, it is configured in the background into
   `<project>/build` (`cmake -S <project> -B <project>/build`, keeping the

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 
+#include "NavigationHistory.h"
 #include "PluginManager.h"
 #include "RecentProjects.h"
 
@@ -122,6 +123,13 @@ private:
     // Opens the file at a line and column from 1 (0: the line's start).
     void openLocation(const QString& file, int line, int column);
 
+    // Back and Forward (Ctrl+Alt+Left, Ctrl+Alt+Right) across files.
+    NavigationHistory::Place placeOf(QWidget* page) const;
+    void navigateBack();
+    void navigateForward();
+    void goToPlace(const NavigationHistory::Place& place);
+    void updateNavigationActions();
+
     QSplitter* m_splitter = nullptr;
     // The recent projects until a project is opened, then the project tree
     QStackedWidget* m_side = nullptr;
@@ -162,6 +170,12 @@ private:
     QSet<QString> m_reportedMissingServers;           // told once a session
     QDockWidget* m_problemsDock = nullptr;
     QListWidget* m_problems = nullptr;
+
+    NavigationHistory m_history;
+    QAction* m_backAction = nullptr;
+    QAction* m_forwardAction = nullptr;
+    QWidget* m_previousTab = nullptr;  // left when the current tab changes
+    bool m_navigating = false;         // Back or Forward moving: nothing to record
     // The program to run when the build in progress succeeds; empty for Build.
     QString m_runAfterBuild;
     QString m_runName;

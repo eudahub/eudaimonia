@@ -61,6 +61,8 @@ add_executable(eudaimonia
     src/app/CompilerMessages.h
     src/app/MainWindow.cpp
     src/app/MainWindow.h
+    src/app/NavigationHistory.cpp
+    src/app/NavigationHistory.h
     src/app/PluginManager.cpp
     src/app/PluginManager.h
     src/app/RecentProjects.cpp
@@ -173,6 +175,13 @@ if(EUDAIMONIA_BUILD_TESTS)
     target_link_libraries(test_build_monitor PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME build_monitor COMMAND test_build_monitor)
     set_tests_properties(build_monitor PROPERTIES TIMEOUT 30)
+
+    # Back and Forward across files.
+    add_executable(test_navigation_history tests/test_navigation_history.cpp src/app/NavigationHistory.cpp)
+    target_include_directories(test_navigation_history PRIVATE src/app)
+    target_link_libraries(test_navigation_history PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME navigation_history COMMAND test_navigation_history)
+    set_tests_properties(navigation_history PROPERTIES TIMEOUT 20)
 
     # Places in files in the compilers' and linkers' messages.
     add_executable(test_compiler_messages tests/test_compiler_messages.cpp src/app/CompilerMessages.cpp)

@@ -83,9 +83,19 @@ struct MainWindow::Editor : spp::EditorViewListener {
     void textChanged() override {
         if (!languageFile.isEmpty() && window->m_language) window->m_language->changed(languageFile, view->text());
     }
-    void cursorMoved(spp::TextPosition) override {
+    void cursorMoved(spp::TextPosition position) override {
+        // A long move within the file (a click far away, Ctrl+End) is a
+        // place to come back to, as a jump to another file is.
+        if (!window->m_navigating && std::abs(position.line - line) >= 10) {
+            window->m_history.leave({view->filePath(), line, column});
+            window->updateNavigationActions();
+        }
+        line = position.line;
+        column = position.column;
         if (window->m_tabs->currentWidget() == page) window->updateStatus();
     }
+    int line = 0;    // the cursor's, as last told
+    int column = 0;
     void formatChanged() override {
         if (window->m_tabs->currentWidget() == page) window->updateStatus();
     }
@@ -127,6 +137,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_tabs->setMovable(true);
     m_tabs->setSharedTabWidths(true);
     connect(m_tabs, &QTabWidget::currentChanged, this, [this] {
+        // Leaving a tab is leaving a place (also for a file opened or a jump).
+        if (!m_navigating && m_previousTab && m_previousTab != m_tabs->currentWidget()
+            && m_editors.count(m_previousTab)) {
+            m_history.leave(placeOf(m_previousTab));
+            updateNavigationActions();
+        }
+        m_previousTab = m_tabs->currentWidget();
         updateTitle();
         updateStatus();
     });
@@ -139,6 +156,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         languageClosed(*editor->second);
         editor->second->view->setListener(nullptr);
         m_editors.erase(editor);
+        if (m_previousTab == page) m_previousTab = nullptr;
     });
 
     m_position = new QLabel;
@@ -752,9 +770,50 @@ void MainWindow::setUpLanguages() {
     m_problemsDock->hide();
 
     QMenu* navigate = menuBar()->insertMenu(menuBar()->actions().last(), new QMenu(tr("&Navigate"), this))->menu();
+    m_backAction = navigate->addAction(tr("&Back"), this, &MainWindow::navigateBack);
+    m_backAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_Left));
+    m_forwardAction = navigate->addAction(tr("&Forward"), this, &MainWindow::navigateForward);
+    m_forwardAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_Right));
+    navigate->addSeparator();
     QAction* definition = navigate->addAction(tr("Go to &Definition"), this, &MainWindow::goToDefinition);
     definition->setShortcut(QKeySequence(Qt::Key_F12));
     navigate->addAction(m_problemsDock->toggleViewAction());
+    updateNavigationActions();
+}
+
+NavigationHistory::Place MainWindow::placeOf(QWidget* page) const {
+    const auto editor = m_editors.find(page);
+    if (editor == m_editors.end()) return {};
+    const spp::TextPosition cursor = editor->second->view->cursorPosition();
+    return {editor->second->view->filePath(), cursor.line, cursor.column};
+}
+
+void MainWindow::navigateBack() {
+    if (m_history.canGoBack()) goToPlace(m_history.back(placeOf(m_tabs->currentWidget())));
+}
+
+void MainWindow::navigateForward() {
+    if (m_history.canGoForward()) goToPlace(m_history.forward(placeOf(m_tabs->currentWidget())));
+}
+
+void MainWindow::goToPlace(const NavigationHistory::Place& place) {
+    m_navigating = true;
+    // A tab closed since gets opened again.
+    if (openFile(place.file)) {
+        if (spp::EditorView* view = viewOf(m_tabs->currentWidget())) {
+            view->setCursorPosition({place.line, place.column});
+            view->widget()->setFocus();
+        }
+    }
+    m_previousTab = m_tabs->currentWidget();
+    m_navigating = false;
+    updateNavigationActions();
+}
+
+void MainWindow::updateNavigationActions() {
+    if (!m_backAction) return;
+    m_backAction->setEnabled(m_history.canGoBack());
+    m_forwardAction->setEnabled(m_history.canGoForward());
 }
 
 void MainWindow::languageOpened(Editor& editor) {
@@ -854,10 +913,20 @@ void MainWindow::goToDefinition() {
 }
 
 void MainWindow::openLocation(const QString& file, int line, int column) {
+    // A jump within the file: the place left is kept here (another file's
+    // tab is left through the tab change).
+    if (!m_navigating && QDir::cleanPath(file) == placeOf(m_tabs->currentWidget()).file) {
+        m_history.leave(placeOf(m_tabs->currentWidget()));
+        updateNavigationActions();
+    }
     if (!openFile(file)) return;
     spp::EditorView* view = viewOf(m_tabs->currentWidget());
     if (!view) return;
+    // The jump is recorded already: the cursor's move is not another one.
+    const bool navigating = m_navigating;
+    m_navigating = true;
     view->setCursorPosition({line - 1, std::max(0, column - 1)});
+    m_navigating = navigating;
     view->widget()->setFocus();
 }
 
