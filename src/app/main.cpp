@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QFileInfo>
+#include <QTextStream>
 
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
@@ -18,7 +19,18 @@ int main(int argc, char** argv) {
     parser.addHelpOption();
     parser.addVersionOption();
     parser.addPositionalArgument("path", "Project directory or files to open", "[path...]");
+    const QCommandLineOption listPlugins("list-plugins", "List the plugin directories and plugins, then exit");
+    parser.addOption(listPlugins);
     parser.process(app);
+
+    if (parser.isSet(listPlugins)) {
+        QTextStream out(stdout);
+        for (const QString& directory : eudaimonia::PluginManager::directories())
+            out << "directory: " << directory << '\n';
+        const eudaimonia::PluginManager plugins;
+        for (const QString& line : plugins.report()) out << line << '\n';
+        return 0;
+    }
 
     eudaimonia::MainWindow window;
     window.show();

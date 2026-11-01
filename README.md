@@ -35,6 +35,21 @@ Directories and files can also be given on the command line:
 eudaimonia [directory] [file ...]
 ```
 
+## Plugins
+
+Plugins are Qt plugins searched for in these directories, in this order:
+the directories in `EUDAIMONIA_PLUGIN_PATH` (separated by `:`),
+`lib/eudaimonia/plugins` next to `bin` when installed, and `plugins` next to
+the executable in the build tree. At start only the interface ID (IID) of
+each plugin file is read; a plugin is loaded when its interface is first
+needed. When two files provide the same interface, the first one found is
+used.
+
+A feature whose plugin is missing reports an error that lists the searched
+directories; there are no built-in replacements. **Help → Plugins** shows the
+searched directories and what was found in them, and so does
+`eudaimonia --list-plugins` on the command line.
+
 ## Building
 
 Requires a C++20 compiler, CMake 3.21+ and Qt 6.2+ (`qt6-base-dev`), and

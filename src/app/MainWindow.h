@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 
+#include "PluginManager.h"
 #include "RecentProjects.h"
 
 #include <QMainWindow>
@@ -36,6 +37,7 @@ private:
     void chooseFile();
     void updateRecentProjects();
     void updateTitle();
+    void showPlugins();
     void restoreState();
     void saveState() const;
 
@@ -50,6 +52,7 @@ private:
     QString m_projectDirectory;
     QString m_lastFileDirectory;
     RecentProjects m_recent;
+    PluginManager m_plugins;
 };
 
 } // namespace eudaimonia

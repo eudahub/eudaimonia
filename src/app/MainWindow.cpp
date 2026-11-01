@@ -7,6 +7,8 @@
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -106,6 +108,7 @@ void MainWindow::createMenus() {
     quit->setShortcut(QKeySequence::Quit);
 
     QMenu* help = menuBar()->addMenu(tr("&Help"));
+    help->addAction(tr("&Plugins..."), this, &MainWindow::showPlugins);
     help->addAction(tr("&About Eudaimonia"), this, [this] {
         QMessageBox::about(this, tr("About Eudaimonia"),
                            tr("<b>Eudaimonia</b> %1<br>An integrated development environment.<br>"
@@ -204,6 +207,27 @@ void MainWindow::updateTitle() {
     if (!m_projectDirectory.isEmpty()) parts << QFileInfo(m_projectDirectory).fileName();
     parts << QStringLiteral("Eudaimonia");
     setWindowTitle(parts.join(QStringLiteral(" — ")));
+}
+
+void MainWindow::showPlugins() {
+    QStringList lines{tr("Searched directories:")};
+    for (const QString& directory : PluginManager::directories()) lines << QStringLiteral("  ") + directory;
+    lines << QString() << tr("Plugins:");
+    if (m_plugins.report().isEmpty()) lines << tr("  none found");
+    for (const QString& line : m_plugins.report()) lines << QStringLiteral("  ") + line;
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Plugins"));
+    auto* text = new QPlainTextEdit(lines.join('\n'));
+    text->setReadOnly(true);
+    text->setLineWrapMode(QPlainTextEdit::NoWrap);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->addWidget(text);
+    layout->addWidget(buttons);
+    dialog.resize(700, 400);
+    dialog.exec();
 }
 
 void MainWindow::restoreState() {
