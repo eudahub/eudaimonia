@@ -83,6 +83,10 @@ struct MainWindow::Editor : spp::EditorViewListener {
     void textChanged() override {
         if (!languageFile.isEmpty() && window->m_language) window->m_language->changed(languageFile, view->text());
     }
+    // Ctrl+click: the definition of what was clicked (the cursor is there).
+    void linkActivated(spp::TextPosition) override {
+        if (window->m_tabs->currentWidget() == page) window->goToDefinition();
+    }
     void cursorMoved(spp::TextPosition position) override {
         // A long move within the file (a click far away, Ctrl+End) is a
         // place to come back to, as a jump to another file is.

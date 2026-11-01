@@ -49,7 +49,9 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   shows when the mouse rests on one) and listed in **Navigate → Problems**,
   where a click opens the place; an edit removes the underlines until the
   server checked the new text. **Navigate → Go to Definition** (F12) opens
-  the definition of the symbol at the cursor.
+  the definition of the symbol at the cursor; so does a Ctrl+click on a
+  word — with Ctrl held, the word under the mouse looks like a link (blue,
+  underlined) and the pointer becomes a pointing hand.
 - **Navigate → Back** (Ctrl+Alt+Left) returns to where one was before, across
   files, and **Forward** (Ctrl+Alt+Right) undoes it: places are kept when
   another tab is shown (also for a file opened), before a jump (Go to
