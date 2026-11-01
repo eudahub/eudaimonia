@@ -81,11 +81,16 @@ private slots:
     }
 
     void readsTheTargetsAfterConfiguring() {
-        const BuildCommand configure = m_cmake->configureCommand(m_project.path(), m_build);
+        // CMake's own default generator, with no options of the IDE.
+        qunsetenv("CMAKE_GENERATOR");
+        QVERIFY(m_cmake->configuredBackend(m_build).isEmpty());
+        const BuildCommand configure = m_cmake->configureCommand(m_project.path(), m_build, {});
         QCOMPARE(configure.program, QStringLiteral("cmake"));
         QCOMPARE(configure.arguments,
                  QStringList({QStringLiteral("-S"), m_project.path(), QStringLiteral("-B"), m_build}));
         QVERIFY(run(configure));
+        QCOMPARE(m_cmake->configuredBackend(m_build), QStringLiteral("Unix Makefiles"));
+        QVERIFY(!m_cmake->supportsLinkJobs(QStringLiteral("Unix Makefiles")));
 
         QString error;
         const QList<BuildTarget> targets = m_cmake->targets(m_build, &error);
@@ -111,6 +116,43 @@ private slots:
         QCOMPARE(QProcess::execute(program, {}), 0);
         QCOMPARE(m_cmake->buildCommand(m_build, {}).arguments,
                  QStringList({QStringLiteral("--build"), m_build, QStringLiteral("--parallel"), jobs}));
+    }
+
+    // Another generator configures the directory afresh; with Ninja the links
+    // get a pool of their own, and lose it when the option is off.
+    void switchesToNinjaWithALinkPool() {
+        if (!m_cmake->backends().contains(QStringLiteral("Ninja"))) QSKIP("ninja is not installed");
+        eudaimonia::ConfigureOptions options;
+        options.backend = QStringLiteral("Ninja");
+        options.linkJobs = 1;
+        const BuildCommand configure = m_cmake->configureCommand(m_project.path(), m_build, options);
+        QCOMPARE(configure.arguments.first(), QStringLiteral("--fresh"));
+        QVERIFY(configure.arguments.contains(QStringLiteral("-G")));
+        QVERIFY(configure.arguments.contains(QStringLiteral("-DCMAKE_JOB_POOLS=eudaimonia_link=1")));
+        QVERIFY(run(configure));
+        QCOMPARE(m_cmake->configuredBackend(m_build), QStringLiteral("Ninja"));
+        // The pool of depth 1 and the link of hello in it.
+        QFile rules(QDir(m_build).filePath(QStringLiteral("CMakeFiles/rules.ninja")));
+        QVERIFY(rules.open(QIODevice::ReadOnly));
+        QVERIFY(rules.readAll().contains("pool eudaimonia_link\n  depth = 1"));
+        QFile edges(QDir(m_build).filePath(QStringLiteral("build.ninja")));
+        QVERIFY(edges.open(QIODevice::ReadOnly));
+        QVERIFY(edges.readAll().contains("pool = eudaimonia_link"));
+        QVERIFY(run(m_cmake->buildCommand(m_build, QStringLiteral("hello"))));
+
+        // The same generator again: no new cache; the option off clears our pool.
+        options.backend.clear();
+        options.linkJobs = 0;
+        const BuildCommand again = m_cmake->configureCommand(m_project.path(), m_build, options);
+        QVERIFY(!again.arguments.contains(QStringLiteral("--fresh")));
+        QVERIFY(again.arguments.contains(QStringLiteral("-UCMAKE_JOB_POOL_LINK")));
+        QVERIFY(run(again));
+        QFile cleared(QDir(m_build).filePath(QStringLiteral("build.ninja")));
+        QVERIFY(cleared.open(QIODevice::ReadOnly));
+        QVERIFY(!cleared.readAll().contains("pool = eudaimonia_link"));
+        // Nothing of ours left to clear.
+        QVERIFY(!m_cmake->configureCommand(m_project.path(), m_build, options)
+                     .arguments.contains(QStringLiteral("-UCMAKE_JOB_POOL_LINK")));
     }
 
     // The environment's parallel level wins over the processors' count.

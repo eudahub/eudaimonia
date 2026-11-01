@@ -81,8 +81,13 @@ private:
     void createBuildBar();
     // Finds the build system of the opened project and configures it.
     void setUpBuild();
-    // Configures the project in the background ("cmake -S . -B build").
-    void configure();
+    // Configures the project in the background ("cmake -S . -B build"):
+    // with the chosen build tool (setting "build/backend") when the build
+    // directory is new or `switchBackend`, else with the one it has.
+    void configure(bool switchBackend = false);
+    // Build → Build Tool: the build system's default or one of its tools.
+    void fillBackendMenu();
+    void chooseBackend(const QString& backend);
     // Reads the targets of the configured project into the target list.
     void loadTargets();
     // Builds the chosen target in a terminal, and with `run` starts it there.
@@ -113,6 +118,7 @@ private:
     QAction* m_configureAction = nullptr;
     QAction* m_buildAction = nullptr;
     QAction* m_runAction = nullptr;
+    QMenu* m_backendMenu = nullptr;
     QPointer<QProcess> m_configuring;
 };
 

@@ -9,6 +9,7 @@
 #include <siplasplas/plugin/EditorPlugin.h>
 
 #include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
@@ -382,7 +383,9 @@ void MainWindow::createBuildBar() {
     m_runAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F10));
     m_runAction->setToolTip(tr("Build the chosen target and run it (Shift+F10)"));
     build->addSeparator();
-    m_configureAction = build->addAction(tr("&Configure Project"), this, &MainWindow::configure);
+    m_configureAction = build->addAction(tr("&Configure Project"), this, [this] { configure(); });
+    m_backendMenu = build->addMenu(tr("Build &Tool"));
+    connect(m_backendMenu, &QMenu::aboutToShow, this, &MainWindow::fillBackendMenu);
     bar->addAction(m_buildAction);
     bar->addAction(m_runAction);
     updateBuildActions();
@@ -416,16 +419,86 @@ void MainWindow::setUpBuild() {
     updateBuildActions();
 }
 
-void MainWindow::configure() {
+namespace {
+
+// The build tool chosen for new build directories; empty: the build system's default.
+QString chosenBackend() {
+    return QSettings().value(QStringLiteral("build/backend")).toString();
+}
+
+// Links (memory hungry) one at a time while compiling uses every job; on by default.
+bool linkOneAtATime() {
+    return QSettings().value(QStringLiteral("build/linkOneAtATime"), true).toBool();
+}
+
+} // namespace
+
+void MainWindow::fillBackendMenu() {
+    m_backendMenu->clear();
+    auto* group = new QActionGroup(m_backendMenu);
+    const QString chosen = chosenBackend();
+    auto add = [&](const QString& text, const QString& backend) {
+        QAction* action = m_backendMenu->addAction(text, this, [this, backend] { chooseBackend(backend); });
+        action->setCheckable(true);
+        action->setChecked(backend == chosen);
+        group->addAction(action);
+    };
+    BuildSystem* buildSystem = m_buildSystem ? m_buildSystem : m_plugins.plugin<BuildSystem>();
+    add(buildSystem ? tr("Default of %1").arg(buildSystem->name()) : tr("Default"), QString());
+    if (buildSystem)
+        for (const QString& backend : buildSystem->backends()) add(backend, backend);
+    m_backendMenu->addSeparator();
+    QAction* link = m_backendMenu->addAction(tr("Link One at a Time (Ninja)"), this, [this](bool checked) {
+        QSettings().setValue(QStringLiteral("build/linkOneAtATime"), checked);
+        // The build directory learns it by configuring.
+        if (m_buildSystem && m_buildSystem->supportsLinkJobs(m_buildSystem->configuredBackend(buildDirectory())))
+            configure();
+    });
+    link->setCheckable(true);
+    link->setChecked(linkOneAtATime());
+    link->setToolTip(tr("Compiling uses every processor, linking one at a time: links take much memory"));
+    if (m_buildSystem) {
+        const QString configured = m_buildSystem->configuredBackend(buildDirectory());
+        m_backendMenu->addSeparator();
+        QString state = configured.isEmpty() ? tr("build/ is not configured yet") : tr("build/ uses %1").arg(configured);
+        if (!configured.isEmpty() && linkOneAtATime() && !m_buildSystem->supportsLinkJobs(configured))
+            state += tr(", which links as many at once as it compiles");
+        m_backendMenu->addAction(state)->setEnabled(false);
+    }
+}
+
+void MainWindow::chooseBackend(const QString& backend) {
+    QSettings().setValue(QStringLiteral("build/backend"), backend);
+    if (!m_buildSystem || backend.isEmpty() || m_configuring) return;
+    const QString configured = m_buildSystem->configuredBackend(buildDirectory());
+    if (configured.isEmpty() || configured == backend) return;
+    // Switching rebuilds everything: the open project switches when asked.
+    if (QMessageBox::question(this, tr("Build Tool"),
+                              tr("build/ of %1 uses %2. Configure it afresh for %3? Everything is built again.")
+                                  .arg(QFileInfo(m_projectDirectory).fileName(), configured, backend))
+        == QMessageBox::Yes)
+        configure(true);
+}
+
+void MainWindow::configure(bool switchBackend) {
     if (!m_buildSystem || m_configuring) return;
-    const BuildCommand command = m_buildSystem->configureCommand(m_projectDirectory, buildDirectory());
+    // A configured build directory keeps its build tool unless asked to switch.
+    const QString configured = m_buildSystem->configuredBackend(buildDirectory());
+    const QString backend = configured.isEmpty() || switchBackend ? chosenBackend() : QString();
+    QString done = tr("Configured %1").arg(QFileInfo(m_projectDirectory).fileName());
+    if (!configured.isEmpty() && !chosenBackend().isEmpty() && configured != chosenBackend() && !switchBackend)
+        done = tr("build/ uses %1, not %2: Build → Build Tool switches it").arg(configured, chosenBackend());
+    ConfigureOptions options;
+    options.backend = backend;
+    options.linkJobs = linkOneAtATime() ? 1 : 0;
+    const BuildCommand command = m_buildSystem->configureCommand(m_projectDirectory, buildDirectory(), options);
     auto* process = new QProcess(this);
     m_configuring = process;
     process->setProcessChannelMode(QProcess::MergedChannels);
     process->setWorkingDirectory(command.workingDirectory);
     const QString project = m_projectDirectory;
     statusBar()->showMessage(tr("Configuring %1 with %2...").arg(QFileInfo(project).fileName(), m_buildSystem->name()));
-    connect(process, &QProcess::finished, this, [this, process, project](int exitCode, QProcess::ExitStatus status) {
+    connect(process, &QProcess::finished, this, [this, process, project, done](int exitCode, QProcess::ExitStatus status) {
         process->deleteLater();
         m_configuring = nullptr;
         if (project != m_projectDirectory) return;  // another project meanwhile
@@ -439,7 +512,7 @@ void MainWindow::configure() {
             loadTargets();
             return;
         }
-        statusBar()->showMessage(tr("Configured %1").arg(QFileInfo(project).fileName()), 3000);
+        statusBar()->showMessage(done, 10000);
         loadTargets();
     });
     connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {

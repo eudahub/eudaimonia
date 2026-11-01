@@ -13,6 +13,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QObject>
+#include <QStandardPaths>
 #include <QThread>
 
 namespace eudaimonia {
@@ -53,17 +54,56 @@ public:
         return QFileInfo(QDir(projectDir).filePath(QStringLiteral("CMakeLists.txt"))).isFile();
     }
 
-    BuildCommand configureCommand(const QString& projectDir, const QString& buildDir) override
+    QStringList backends() const override
     {
+        // The generators whose build tool is installed.
+        QStringList result;
+        if (!QStandardPaths::findExecutable(QStringLiteral("ninja")).isEmpty()) result << QStringLiteral("Ninja");
+        if (!QStandardPaths::findExecutable(QStringLiteral("make")).isEmpty())
+            result << QStringLiteral("Unix Makefiles");
+        return result;
+    }
+
+    QString configuredBackend(const QString& buildDir) const override
+    {
+        return cacheValue(buildDir, "CMAKE_GENERATOR");
+    }
+
+    // Ninja's job pools; make's -j counts every job alike.
+    bool supportsLinkJobs(const QString& backend) const override
+    {
+        return backend.contains(QLatin1String("Ninja"));
+    }
+
+    BuildCommand configureCommand(const QString& projectDir, const QString& buildDir,
+                                  const ConfigureOptions& options) override
+    {
+        const QString& backend = options.backend;
         // The query for the code model (targets and their files), answered
         // by the configuration that follows. Without it (e.g. a read-only
         // build directory) targets() reports that there is no code model.
         QDir(buildDir).mkpath(queryDir);
         QFile query(QDir(buildDir).filePath(queryDir + QStringLiteral("/codemodel-v2")));
         if (!query.exists() && query.open(QIODevice::WriteOnly)) query.close();
-        return {QStringLiteral("cmake"),
-                {QStringLiteral("-S"), projectDir, QStringLiteral("-B"), buildDir},
-                projectDir};
+        QStringList arguments{QStringLiteral("-S"), projectDir, QStringLiteral("-B"), buildDir};
+        const QString configured = configuredBackend(buildDir);
+        if (!backend.isEmpty() && backend != configured) {
+            // Another generator than the cache's needs a new cache (CMake 3.24).
+            if (!configured.isEmpty()) arguments.prepend(QStringLiteral("--fresh"));
+            arguments << QStringLiteral("-G") << backend;
+        }
+        // The links in a pool of their own (Ninja), set or cleared at every
+        // configuration, so that the cache follows the option.
+        const QString used = backend.isEmpty() ? configured : backend;
+        if (supportsLinkJobs(used)) {
+            if (options.linkJobs > 0)
+                arguments << QStringLiteral("-DCMAKE_JOB_POOLS=eudaimonia_link=%1").arg(options.linkJobs)
+                          << QStringLiteral("-DCMAKE_JOB_POOL_LINK=eudaimonia_link");
+            else if (cacheValue(buildDir, "CMAKE_JOB_POOL_LINK") == QLatin1String("eudaimonia_link"))
+                // Only our own pool: the user's pools stay.
+                arguments << QStringLiteral("-UCMAKE_JOB_POOLS") << QStringLiteral("-UCMAKE_JOB_POOL_LINK");
+        }
+        return {QStringLiteral("cmake"), arguments, projectDir};
     }
 
     QList<BuildTarget> targets(const QString& buildDir, QString* error) const override
@@ -125,6 +165,21 @@ public:
             arguments << QStringLiteral("--parallel") << QString::number(QThread::idealThreadCount());
         if (!target.isEmpty()) arguments << QStringLiteral("--target") << target;
         return {QStringLiteral("cmake"), arguments, buildDir};
+    }
+
+private:
+    // The value of `name` in buildDir's CMakeCache.txt; empty without it.
+    static QString cacheValue(const QString& buildDir, const QByteArray& name)
+    {
+        QFile cache(QDir(buildDir).filePath(QStringLiteral("CMakeCache.txt")));
+        if (!cache.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+        const QByteArray prefix = name + ':';
+        while (!cache.atEnd()) {
+            const QByteArray line = cache.readLine().trimmed();
+            const qsizetype equals = line.indexOf('=');
+            if (line.startsWith(prefix) && equals > 0) return QString::fromUtf8(line.mid(equals + 1));
+        }
+        return {};
     }
 };
 

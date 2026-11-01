@@ -21,6 +21,19 @@ struct BuildCommand {
     QString workingDirectory;
 };
 
+// How the IDE wants a project configured.
+struct ConfigureOptions {
+    // The tool doing the building (backends()); empty keeps the one the
+    // build directory was configured with, the build tool's default for a
+    // new one. Another than that one configures the directory afresh, after
+    // which everything is built again.
+    QString backend;
+    // At most this many links at once (they take much memory), while
+    // compiling uses all jobs; 0: no limit of its own. Only build tools
+    // that can (supportsLinkJobs()).
+    int linkJobs = 0;
+};
+
 // A target of a configured project.
 struct BuildTarget {
     QString name;
@@ -42,9 +55,20 @@ public:
     // CMakeLists.txt).
     virtual bool recognizes(const QString& projectDir) const = 0;
 
+    // The tools that can do the building, installed here, e.g. CMake's
+    // generators {"Ninja", "Unix Makefiles"}.
+    virtual QStringList backends() const = 0;
+    // The tool `buildDir` was configured with; empty when it was not
+    // configured yet.
+    virtual QString configuredBackend(const QString& buildDir) const = 0;
+
+    // The backend can limit the links running at once (ConfigureOptions::linkJobs).
+    virtual bool supportsLinkJobs(const QString& backend) const = 0;
+
     // Prepares `buildDir` (e.g. asks the build tool to describe the project
     // there) and gives the command configuring the project into it.
-    virtual BuildCommand configureCommand(const QString& projectDir, const QString& buildDir) = 0;
+    virtual BuildCommand configureCommand(const QString& projectDir, const QString& buildDir,
+                                          const ConfigureOptions& options) = 0;
 
     // The targets of the project configured into `buildDir`, in the build
     // tool's order; empty with `error` set when they cannot be read (e.g. not
@@ -57,7 +81,7 @@ public:
 
 } // namespace eudaimonia
 
-#define EUDAIMONIA_BUILDSYSTEM_IID "io.github.eudahub.eudaimonia.BuildSystem/1"
+#define EUDAIMONIA_BUILDSYSTEM_IID "io.github.eudahub.eudaimonia.BuildSystem/2"
 Q_DECLARE_INTERFACE(eudaimonia::BuildSystem, EUDAIMONIA_BUILDSYSTEM_IID)
 
 #endif // EUDAIMONIA_PLUGIN_BUILDSYSTEM_H

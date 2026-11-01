@@ -56,6 +56,17 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   Enter is pressed. **Build → Configure Project** configures again; the
   targets are read again whenever the window becomes active (a build
   reconfigures by itself after `CMakeLists.txt` changed).
+- **Build → Build Tool** chooses what builds a new `build/`: CMake's default
+  (make, or `CMAKE_GENERATOR` from the environment), **Ninja** or **Unix
+  Makefiles** (those installed). A `build/` configured already keeps its
+  tool (the status bar says when it differs from the choice); choosing
+  another asks whether to configure it afresh (`cmake --fresh`, CMake 3.24 or
+  later), after which everything is built again. The menu shows the tool
+  `build/` uses.
+- **Link One at a Time** (in the same menu, on by default) lets compiling use
+  every processor while links, which take much memory, run one at a time —
+  with Ninja only (a job pool: `CMAKE_JOB_POOLS`, `CMAKE_JOB_POOL_LINK`);
+  make's `-j` counts every job alike. Turning it off removes only that pool.
 - The window's size, position and the width of the tree are restored at the
   next start, from `~/.config/eudahub/eudaimonia.conf`.
 - **Help → About** names the commit built and its time (with `+changes`
@@ -85,8 +96,8 @@ Eudaimonia's own plugin interfaces are headers in `api/` (CMake target
 its plugins are in `plugins/`:
 
 - `eudaimonia-cmake` (`eudaimonia::BuildSystem`): CMake projects — the
-  command configuring a project (`cmake -S <project> -B <build>`, with no
-  options of its own) and building it (`cmake --build <build> --parallel
+  command configuring a project (`cmake -S <project> -B <build>`, with only
+  the generator and the link pool the IDE asks for) and building it (`cmake --build <build> --parallel
   <logical processors>`, or one target), and the project's targets with their type and the program each
   executable builds, read from CMake's
   [file API](https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html)
