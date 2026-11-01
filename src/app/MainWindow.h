@@ -33,6 +33,7 @@ class EditorView;
 namespace eudaimonia {
 
 class BuildPanel;
+class RunPanel;
 
 // The project directory as a tree on the left, open files in MRU tabs on the
 // right, each in an editor of the editor plugin (spp-editor).
@@ -97,6 +98,9 @@ private:
     // program in a terminal when the build succeeded.
     void buildAndRun(bool run);
     void buildFinished(bool success);
+    // Runs the program in the Run panel, or in a terminal (Run in Terminal);
+    // a program still running in the panel is stopped first.
+    void runProgram(const QString& program, const QString& name);
     void updateBuildActions();
     QString buildDirectory() const;
 
@@ -127,6 +131,12 @@ private:
     QMenu* m_backendMenu = nullptr;
     QDockWidget* m_buildDock = nullptr;
     BuildPanel* m_buildPanel = nullptr;
+    QDockWidget* m_runDock = nullptr;
+    RunPanel* m_runPanel = nullptr;
+    QAction* m_runInTerminal = nullptr;
+    // The program to run once the one running in the panel has stopped.
+    QString m_pendingProgram;
+    QString m_pendingName;
     // The program to run when the build in progress succeeds; empty for Build.
     QString m_runAfterBuild;
     QString m_runName;

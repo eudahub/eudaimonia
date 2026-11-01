@@ -64,6 +64,8 @@ add_executable(eudaimonia
     src/app/PluginManager.h
     src/app/RecentProjects.cpp
     src/app/RecentProjects.h
+    src/app/RunPanel.cpp
+    src/app/RunPanel.h
     src/app/Terminal.cpp
     src/app/Terminal.h
     resources/eudaimonia.qrc)
@@ -185,6 +187,13 @@ if(EUDAIMONIA_BUILD_TESTS)
     target_link_libraries(test_build_panel PRIVATE Qt6::Widgets Qt6::Test eudaimonia::plugin-api)
     add_test(NAME build_panel COMMAND test_build_panel)
     set_tests_properties(build_panel PROPERTIES TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # The run panel on real processes: output, input, stopping.
+    add_executable(test_run_panel tests/test_run_panel.cpp src/app/RunPanel.cpp)
+    target_include_directories(test_run_panel PRIVATE src/app)
+    target_link_libraries(test_run_panel PRIVATE Qt6::Widgets Qt6::Test)
+    add_test(NAME run_panel COMMAND test_run_panel)
+    set_tests_properties(run_panel PROPERTIES TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # The CMake plugin on a small project configured and built by the test.
     add_executable(test_cmake_plugin tests/test_cmake_plugin.cpp)

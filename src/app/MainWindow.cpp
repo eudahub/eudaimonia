@@ -2,6 +2,7 @@
 #include "MainWindow.h"
 
 #include "BuildPanel.h"
+#include "RunPanel.h"
 #include "Terminal.h"
 #include "build_info.h"
 
@@ -384,9 +385,18 @@ void MainWindow::createBuildBar() {
                                    [this] { buildAndRun(true); });
     m_runAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F10));
     m_runAction->setToolTip(tr("Build the chosen target and run it (Shift+F10)"));
-    m_stopAction = build->addAction(tr("&Stop"), this, [this] { m_buildPanel->stop(); });
+    m_stopAction = build->addAction(tr("&Stop"), this, [this] {
+        if (m_buildPanel->isRunning()) m_buildPanel->stop();
+        else m_runPanel->stop();
+    });
     m_stopAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F2));
-    m_stopAction->setToolTip(tr("Stop the build (Ctrl+F2)"));
+    m_stopAction->setToolTip(tr("Stop the build, or the program running (Ctrl+F2)"));
+    m_runInTerminal = build->addAction(tr("Run in &Terminal"));
+    m_runInTerminal->setCheckable(true);
+    m_runInTerminal->setChecked(QSettings().value(QStringLiteral("run/inTerminal"), false).toBool());
+    m_runInTerminal->setToolTip(tr("Run programs in a terminal window, e.g. full-screen ones"));
+    connect(m_runInTerminal, &QAction::toggled, this,
+            [](bool checked) { QSettings().setValue(QStringLiteral("run/inTerminal"), checked); });
     build->addSeparator();
     m_configureAction = build->addAction(tr("&Configure Project"), this, [this] { configure(); });
     m_backendMenu = build->addMenu(tr("Build &Tool"));
@@ -413,6 +423,24 @@ void MainWindow::createBuildBar() {
     addDockWidget(Qt::BottomDockWidgetArea, m_buildDock);
     m_buildDock->hide();
     build->addAction(m_buildDock->toggleViewAction());
+
+    // The program's output and input, beside the build's.
+    m_runPanel = new RunPanel;
+    connect(m_runPanel, &RunPanel::started, this, &MainWindow::updateBuildActions);
+    connect(m_runPanel, &RunPanel::finished, this, [this] {
+        updateBuildActions();
+        if (m_pendingProgram.isEmpty()) return;
+        const QString program = m_pendingProgram;
+        m_pendingProgram.clear();
+        runProgram(program, m_pendingName);
+    });
+    m_runDock = new QDockWidget(tr("Run"), this);
+    m_runDock->setObjectName(QStringLiteral("runDock"));
+    m_runDock->setWidget(m_runPanel);
+    addDockWidget(Qt::BottomDockWidgetArea, m_runDock);
+    tabifyDockWidget(m_buildDock, m_runDock);
+    m_runDock->hide();
+    build->addAction(m_runDock->toggleViewAction());
     updateBuildActions();
 }
 
@@ -585,7 +613,8 @@ void MainWindow::loadTargets() {
 
 void MainWindow::updateBuildActions() {
     const bool building = m_buildPanel && m_buildPanel->isRunning();
-    if (m_stopAction) m_stopAction->setEnabled(building);
+    const bool running = m_runPanel && m_runPanel->isRunning();
+    if (m_stopAction) m_stopAction->setEnabled(building || running);
     const bool idle = m_buildSystem && !m_configuring && !building;
     m_configureAction->setEnabled(idle);
     m_buildAction->setEnabled(idle);
@@ -619,12 +648,30 @@ void MainWindow::buildFinished(bool success) {
     const QString program = m_runAfterBuild;
     m_runAfterBuild.clear();
     if (!success || program.isEmpty()) return;
+    runProgram(program, m_runName);
+}
+
+void MainWindow::runProgram(const QString& program, const QString& name) {
     // The program runs in its build directory, as CLion runs it.
-    const QString script = QStringLiteral("cd %1 && %2")
-                               .arg(Terminal::quote(QFileInfo(program).absolutePath()), Terminal::command(program, {}));
-    const QString title = tr("Run %1").arg(m_runName);
-    QString error;
-    if (!Terminal::run(script, m_projectDirectory, title, &error)) QMessageBox::warning(this, title, error);
+    const QString directory = QFileInfo(program).absolutePath();
+    if (m_runInTerminal->isChecked()) {
+        const QString script =
+            QStringLiteral("cd %1 && %2").arg(Terminal::quote(directory), Terminal::command(program, {}));
+        const QString title = tr("Run %1").arg(name);
+        QString error;
+        if (!Terminal::run(script, m_projectDirectory, title, &error)) QMessageBox::warning(this, title, error);
+        return;
+    }
+    m_runDock->show();
+    m_runDock->raise();
+    if (m_runPanel->isRunning()) {
+        // Run again: the running one stops, the new one starts after it.
+        m_pendingProgram = program;
+        m_pendingName = name;
+        m_runPanel->stop();
+        return;
+    }
+    m_runPanel->start(program, {}, directory);
 }
 
 void MainWindow::chooseProject() {
@@ -701,8 +748,10 @@ void MainWindow::saveState() const {
 
 void MainWindow::closeEvent(QCloseEvent* event) {
     // A running build is stopped with the window (BuildPanel's destructor).
-    if (m_buildPanel->isRunning()
-        && QMessageBox::question(this, tr("Build Running"), tr("A build is running. Stop it and quit?"))
+    if ((m_buildPanel->isRunning() || m_runPanel->isRunning())
+        && QMessageBox::question(this, tr("Still Running"),
+                                 m_buildPanel->isRunning() ? tr("A build is running. Stop it and quit?")
+                                                           : tr("The program is running. Stop it and quit?"))
                != QMessageBox::Yes) {
         event->ignore();
         return;

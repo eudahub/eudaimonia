@@ -49,9 +49,16 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   --parallel <N> --target <name>`, N being the number of logical processors,
   unless `CMAKE_BUILD_PARALLEL_LEVEL` is set; everything when there is no
   target), **Run** (Shift+F10) builds it and, when the build succeeded,
-  starts the program in its build directory, in a terminal window —
-  gnome-terminal when installed, else the desktop's (konsole,
-  xfce4-terminal, mate-terminal, qterminal, xterm); the setting
+  starts the program in its build directory, in the **Run panel**: its
+  output (errors in red), line by line as in a terminal (through `stdbuf`,
+  when installed, since C's stdio would otherwise hold back the output of a
+  program writing into a pipe), a line for its standard input (Enter sends
+  it, **End Input** closes the input), and at the end its exit code, how
+  long it ran and when it finished. **Stop** (Ctrl+F2) ends the program and
+  what it started; Run while it runs stops it and starts again.
+  **Build → Run in Terminal** runs programs in a terminal window instead,
+  e.g. full-screen ones — gnome-terminal when installed, else the desktop's
+  (konsole, xfce4-terminal, mate-terminal, qterminal, xterm); the setting
   `run/terminal` names another — which stays open with the exit status until
   Enter is pressed. **Build → Configure Project** configures again; the
   targets are read again whenever the window becomes active and after a
