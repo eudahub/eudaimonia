@@ -42,8 +42,17 @@ signals:
     void started();
     // The build ended: `success` when it exited with 0.
     void finished(bool success);
+    // A compiler's message was clicked: its place in a file (absolute path,
+    // line and column from 1; column 0 when not given).
+    void locationActivated(const QString& file, int line, int column);
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    // The place of the message on the output's line at `position`
+    // (viewport coordinates); empty file when there is none.
+    QString messageFileAt(const QPoint& position, int* line, int* column) const;
     void readOutput();
     void tick();
     void end(int exitCode, bool crashed);
@@ -56,6 +65,7 @@ private:
     QPlainTextEdit* m_output = nullptr;
     QProcess* m_process = nullptr;
     QString m_title;
+    QString m_workingDirectory;  // relative paths in messages are relative to it
     QElapsedTimer m_elapsed;
     QTimer m_timer;
     BuildMonitor::Memory m_startMemory;

@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "BuildPanel.h"
 
+#include "CompilerMessages.h"
+
 #include <QDateTime>
+#include <QDir>
+#include <QMouseEvent>
+#include <QSyntaxHighlighter>
+#include <QTextBlock>
 #include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -17,6 +23,39 @@
 #include <unistd.h>
 
 namespace eudaimonia {
+namespace {
+
+// The message of a line of the output; the command shown first ("$ ...")
+// is none, whatever its words.
+std::optional<CompilerMessage> messageOf(const QString& line) {
+    if (line.startsWith(QLatin1String("$ "))) return std::nullopt;
+    return parseCompilerMessage(line);
+}
+
+// Errors in red, warnings in amber, notes muted: the lines one can click.
+class MessageHighlighter : public QSyntaxHighlighter {
+public:
+    using QSyntaxHighlighter::QSyntaxHighlighter;
+
+protected:
+    void highlightBlock(const QString& text) override {
+        const auto message = messageOf(text);
+        if (!message) return;
+        QTextCharFormat format;
+        format.setFontUnderline(true);
+        switch (message->kind) {
+        case CompilerMessage::Kind::Error:
+            format.setForeground(QColor(0xc0, 0x10, 0x10));
+            format.setFontWeight(QFont::Bold);
+            break;
+        case CompilerMessage::Kind::Warning: format.setForeground(QColor(0xa0, 0x60, 0x00)); break;
+        case CompilerMessage::Kind::Note: format.setForeground(QColor(0x40, 0x60, 0x90)); break;
+        }
+        setFormat(0, int(text.size()), format);
+    }
+};
+
+} // namespace
 
 BuildPanel::BuildPanel(QWidget* parent) : QWidget(parent) {
     m_status = new QLabel;
@@ -32,6 +71,10 @@ BuildPanel::BuildPanel(QWidget* parent) : QWidget(parent) {
     m_output->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_output->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     m_output->setMaximumBlockCount(100000);
+    new MessageHighlighter(m_output->document());
+    // A click on a compiler's message opens its place.
+    m_output->viewport()->installEventFilter(this);
+    m_output->viewport()->setMouseTracking(true);
 
     auto* top = new QHBoxLayout;
     top->addWidget(m_status, 1);
@@ -58,6 +101,7 @@ BuildPanel::~BuildPanel() {
 bool BuildPanel::start(const BuildCommand& command, const QString& title) {
     if (m_process) return false;
     m_title = title;
+    m_workingDirectory = command.workingDirectory;
     m_stopReason.clear();
     m_resident = 0;
     m_peak = 0;
@@ -164,6 +208,17 @@ void BuildPanel::end(int exitCode, bool crashed) {
     else
         summary = tr("Build failed (exit code %1) after %2, at %3.").arg(exitCode).arg(duration(took), finishedAt);
     summary += tr(" The build took at most %1 of memory.").arg(BuildMonitor::formatBytes(m_peak));
+    int errors = 0;
+    int warnings = 0;
+    for (QTextBlock block = m_output->document()->begin(); block.isValid(); block = block.next()) {
+        const auto message = messageOf(block.text());
+        if (!message) continue;
+        if (message->kind == CompilerMessage::Kind::Error) ++errors;
+        else if (message->kind == CompilerMessage::Kind::Warning) ++warnings;
+    }
+    if (errors || warnings)
+        summary += QLatin1Char(' ') + tr("%n error(s)", nullptr, errors) + QStringLiteral(", ")
+                   + tr("%n warning(s)", nullptr, warnings) + tr("; click one to open its place.");
     m_output->appendPlainText(QStringLiteral("\n") + summary);
     m_output->verticalScrollBar()->setValue(m_output->verticalScrollBar()->maximum());
     m_status->setText(QStringLiteral("<b>%1</b> — %2").arg(m_title.toHtmlEscaped(), summary.toHtmlEscaped()));
@@ -171,6 +226,40 @@ void BuildPanel::end(int exitCode, bool crashed) {
     m_process->deleteLater();
     m_process = nullptr;
     emit finished(success);
+}
+
+QString BuildPanel::messageFileAt(const QPoint& position, int* line, int* column) const {
+    const QTextBlock block = m_output->cursorForPosition(position).block();
+    if (!block.isValid()) return {};
+    // Only on the text of the line, not in the empty space after it.
+    QTextCursor end(block);
+    end.movePosition(QTextCursor::EndOfBlock);
+    if (position.x() > m_output->cursorRect(end).right()) return {};
+    const auto message = messageOf(block.text());
+    if (!message) return {};
+    *line = message->line;
+    *column = message->column;
+    return QDir::cleanPath(QDir(m_workingDirectory).absoluteFilePath(message->file));
+}
+
+bool BuildPanel::eventFilter(QObject* watched, QEvent* event) {
+    if (watched != m_output->viewport()) return QWidget::eventFilter(watched, event);
+    int line = 0;
+    int column = 0;
+    if (event->type() == QEvent::MouseMove) {
+        const auto* mouse = static_cast<QMouseEvent*>(event);
+        const bool overMessage =
+            mouse->buttons() == Qt::NoButton && !messageFileAt(mouse->position().toPoint(), &line, &column).isEmpty();
+        m_output->viewport()->setCursor(overMessage ? Qt::PointingHandCursor : Qt::IBeamCursor);
+    } else if (event->type() == QEvent::MouseButtonRelease) {
+        const auto* mouse = static_cast<QMouseEvent*>(event);
+        // A click, not the end of selecting text.
+        if (mouse->button() == Qt::LeftButton && !m_output->textCursor().hasSelection()) {
+            const QString file = messageFileAt(mouse->position().toPoint(), &line, &column);
+            if (!file.isEmpty()) emit locationActivated(file, line, column);
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 QString BuildPanel::duration(qint64 milliseconds) {

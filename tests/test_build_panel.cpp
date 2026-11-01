@@ -4,8 +4,12 @@
 // build gone afterwards.
 #include "BuildPanel.h"
 
+#include <QDir>
+#include <QPlainTextEdit>
+#include <QTemporaryDir>
 #include <QSignalSpy>
 #include <QTest>
+#include <QTextBlock>
 
 #include <csignal>
 
@@ -74,6 +78,45 @@ private slots:
         QCOMPARE(finished.first().first().toBool(), false);
         QVERIFY(panel.output().contains(QStringLiteral("stopped by the user")));
         QTRY_VERIFY(!alive(child));
+    }
+
+    // A compiler's error: counted in the summary, and a click on it gives
+    // its place, a relative path resolved in the build's directory.
+    void opensTheMessagesPlace() {
+        BuildPanel panel;
+        panel.resize(900, 400);
+        panel.show();
+        QSignalSpy finished(&panel, &BuildPanel::finished);
+        QSignalSpy activated(&panel, &BuildPanel::locationActivated);
+        QTemporaryDir project;
+        QDir(project.path()).mkpath(QStringLiteral("build"));
+        panel.start({QStringLiteral("sh"),
+                     {QStringLiteral("-c"),
+                      QStringLiteral("echo '../src/main.cpp:12:5: error: x was not declared'; "
+                                     "echo 'a.h:3:1: warning: unused'; exit 1")},
+                     project.filePath(QStringLiteral("build"))},
+                    QStringLiteral("Build"));
+        QVERIFY(finished.wait(10000));
+        QVERIFY(panel.output().contains(QStringLiteral("1 error(s), 1 warning(s)")));
+
+        auto* output = panel.findChild<QPlainTextEdit*>();
+        QVERIFY(output);
+        QTextBlock block = output->document()->begin();
+        while (block.isValid() && !block.text().startsWith(QStringLiteral("../src/main.cpp"))) block = block.next();
+        QVERIFY(block.isValid());
+        QTextCursor cursor(block);
+        cursor.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, 3);
+        QVERIFY(QTest::qWaitForWindowExposed(&panel));
+        QTest::mouseClick(output->viewport(), Qt::LeftButton, {}, output->cursorRect(cursor).center());
+        QCOMPARE(activated.count(), 1);
+        QCOMPARE(activated.first().at(0).toString(), project.filePath(QStringLiteral("src/main.cpp")));
+        QCOMPARE(activated.first().at(1).toInt(), 12);
+        QCOMPARE(activated.first().at(2).toInt(), 5);
+
+        // The summary line is no message: nothing happens.
+        QTextCursor last(output->document()->lastBlock());
+        QTest::mouseClick(output->viewport(), Qt::LeftButton, {}, output->cursorRect(last).center() + QPoint(2, 0));
+        QCOMPARE(activated.count(), 1);
     }
 
     // A limit no computer meets: the build is killed at the first look.

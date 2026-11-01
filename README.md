@@ -60,8 +60,15 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   it has been running, the memory the build takes now and at most (all its
   processes: cmake, ninja, compilers, linkers) and the memory the computer
   has left (and the swap in use, when there is swap). At the end it says how
-  long the build took, when it finished and the most memory it took.
-  **Stop** (Ctrl+F2) stops the whole build.
+  long the build took, when it finished and the most memory it took, and how
+  many errors and warnings there were. **Stop** (Ctrl+F2) stops the whole
+  build.
+- **Compilers' messages** in the panel — GCC's and Clang's `file:line:column:
+  error|warning|note:`, `In file included from file:line`, and the linker's
+  `file:line:(...): undefined reference` — are coloured (errors red,
+  warnings amber, notes muted) and underlined; a click on one opens its file
+  at that line and column. Relative paths are taken from the build
+  directory.
 - **A build is stopped at once when memory runs short**, before the
   computer swaps — a swapping build makes the computer useless for long and
   wears the disk: when less memory is available than 5 % of it (at least

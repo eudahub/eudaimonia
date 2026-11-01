@@ -399,6 +399,14 @@ void MainWindow::createBuildBar() {
     m_buildPanel = new BuildPanel;
     connect(m_buildPanel, &BuildPanel::started, this, &MainWindow::updateBuildActions);
     connect(m_buildPanel, &BuildPanel::finished, this, &MainWindow::buildFinished);
+    // A compiler's message clicked: its file at its line and column.
+    connect(m_buildPanel, &BuildPanel::locationActivated, this, [this](const QString& file, int line, int column) {
+        if (!openFile(file)) return;
+        spp::EditorView* view = viewOf(m_tabs->currentWidget());
+        if (!view) return;
+        view->setCursorPosition({line - 1, std::max(0, column - 1)});
+        view->widget()->setFocus();
+    });
     m_buildDock = new QDockWidget(tr("Build"), this);
     m_buildDock->setObjectName(QStringLiteral("buildDock"));
     m_buildDock->setWidget(m_buildPanel);

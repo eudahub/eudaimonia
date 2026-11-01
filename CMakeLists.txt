@@ -56,6 +56,8 @@ add_executable(eudaimonia
     src/app/BuildMonitor.h
     src/app/BuildPanel.cpp
     src/app/BuildPanel.h
+    src/app/CompilerMessages.cpp
+    src/app/CompilerMessages.h
     src/app/MainWindow.cpp
     src/app/MainWindow.h
     src/app/PluginManager.cpp
@@ -169,8 +171,16 @@ if(EUDAIMONIA_BUILD_TESTS)
     add_test(NAME build_monitor COMMAND test_build_monitor)
     set_tests_properties(build_monitor PROPERTIES TIMEOUT 30)
 
+    # Places in files in the compilers' and linkers' messages.
+    add_executable(test_compiler_messages tests/test_compiler_messages.cpp src/app/CompilerMessages.cpp)
+    target_include_directories(test_compiler_messages PRIVATE src/app)
+    target_link_libraries(test_compiler_messages PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME compiler_messages COMMAND test_compiler_messages)
+    set_tests_properties(compiler_messages PROPERTIES TIMEOUT 20)
+
     # The build panel on real processes: output, stopping, lack of memory.
-    add_executable(test_build_panel tests/test_build_panel.cpp src/app/BuildPanel.cpp src/app/BuildMonitor.cpp)
+    add_executable(test_build_panel tests/test_build_panel.cpp src/app/BuildPanel.cpp src/app/BuildMonitor.cpp
+        src/app/CompilerMessages.cpp)
     target_include_directories(test_build_panel PRIVATE src/app)
     target_link_libraries(test_build_panel PRIVATE Qt6::Widgets Qt6::Test eudaimonia::plugin-api)
     add_test(NAME build_panel COMMAND test_build_panel)
