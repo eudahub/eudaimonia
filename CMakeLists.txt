@@ -69,6 +69,27 @@ install(TARGETS eudaimonia RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES resources/eudaimonia.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
 install(FILES resources/icons/eudaimonia.svg
         DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+# Refresh the icon and desktop file caches, so that a running desktop (e.g.
+# GNOME on Wayland, whose shell cannot be restarted without logging out)
+# shows the launcher and its icon at once, as ducat does. Skipped for
+# packaging (DESTDIR) and when the tools are missing.
+install(CODE "
+    if(NOT \"\$ENV{DESTDIR}\")
+        set(data \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}\")
+        find_program(gtk_update_icon_cache gtk-update-icon-cache)
+        find_program(update_desktop_database update-desktop-database)
+        if(gtk_update_icon_cache)
+            message(STATUS \"Updating the icon cache of \${data}/icons/hicolor\")
+            execute_process(COMMAND \"\${gtk_update_icon_cache}\" -f -t
+                            \"\${data}/icons/hicolor\" OUTPUT_QUIET ERROR_QUIET)
+        endif()
+        if(update_desktop_database)
+            message(STATUS \"Updating the desktop file database of \${data}/applications\")
+            execute_process(COMMAND \"\${update_desktop_database}\"
+                            \"\${data}/applications\" OUTPUT_QUIET ERROR_QUIET)
+        endif()
+    endif()
+")
 
 option(EUDAIMONIA_BUILD_TESTS "Build fast offline tests" ON)
 if(EUDAIMONIA_BUILD_TESTS)
