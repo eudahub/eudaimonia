@@ -58,11 +58,14 @@ add_executable(eudaimonia
     src/app/PluginManager.h
     src/app/RecentProjects.cpp
     src/app/RecentProjects.h
+    src/app/Terminal.cpp
+    src/app/Terminal.h
     resources/eudaimonia.qrc)
 target_compile_definitions(eudaimonia PRIVATE
     EUDAIMONIA_VERSION="${PROJECT_VERSION}"
     EUDAIMONIA_PLUGIN_DIR_FROM_BIN="${EUDAIMONIA_PLUGIN_DIR_FROM_BIN}")
-target_link_libraries(eudaimonia PRIVATE Qt6::Widgets qt-extra siplasplas::plugin-api)
+target_link_libraries(eudaimonia PRIVATE Qt6::Widgets qt-extra siplasplas::plugin-api eudaimonia::plugin-api)
+add_dependencies(eudaimonia eudaimonia-cmake)
 
 # Help → About names the commit built and its time, and those of the
 # components built in, so that it is plain which versions a build uses:

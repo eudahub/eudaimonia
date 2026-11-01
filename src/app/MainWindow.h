@@ -4,13 +4,19 @@
 #include "PluginManager.h"
 #include "RecentProjects.h"
 
+#include <eudaimonia/plugin/BuildSystem.h>
+
 #include <QMainWindow>
+#include <QPointer>
 
 #include <memory>
 #include <unordered_map>
 
 class MruTabWidget;
+class QAction;
+class QComboBox;
 class QFileSystemModel;
+class QProcess;
 class QLabel;
 class QListWidget;
 class QMenu;
@@ -67,6 +73,22 @@ private:
     void checkExternalChanges();
     void updateTabText(QWidget* page);
     void updateStatus();
+    // Saves every tab with unsaved changes; false when one was not saved.
+    bool saveAll();
+
+    // Building: the project's build system plugin (CMake), the build
+    // directory <project>/build, the executable targets to run.
+    void createBuildBar();
+    // Finds the build system of the opened project and configures it.
+    void setUpBuild();
+    // Configures the project in the background ("cmake -S . -B build").
+    void configure();
+    // Reads the targets of the configured project into the target list.
+    void loadTargets();
+    // Builds the chosen target in a terminal, and with `run` starts it there.
+    void buildAndRun(bool run);
+    void updateBuildActions();
+    QString buildDirectory() const;
 
     QSplitter* m_splitter = nullptr;
     // The recent projects until a project is opened, then the project tree
@@ -84,6 +106,14 @@ private:
     // The editors of the tabs, by their pages.
     std::unordered_map<QWidget*, std::unique_ptr<Editor>> m_editors;
     bool m_checkingExternalChanges = false;
+
+    BuildSystem* m_buildSystem = nullptr;
+    QList<BuildTarget> m_targets;
+    QComboBox* m_targetBox = nullptr;
+    QAction* m_configureAction = nullptr;
+    QAction* m_buildAction = nullptr;
+    QAction* m_runAction = nullptr;
+    QPointer<QProcess> m_configuring;
 };
 
 } // namespace eudaimonia

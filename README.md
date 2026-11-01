@@ -5,8 +5,8 @@ language servers and debugging come from Qt plugins: shared ones from
 [siplasplas-plugins](https://github.com/siplasplas/siplasplas-plugins), and
 plugins of the IDE itself.
 
-Work in progress: this first version shows a project directory and edits
-its files in tabs. Building and running follow.
+Work in progress: this first version shows a project directory, edits its
+files in tabs, and builds and runs CMake projects in a terminal window.
 
 ## Using it
 
@@ -39,6 +39,21 @@ its files in tabs. Building and running follow.
   with unsaved changes asks first. A reload is one undo step: Ctrl+Z brings
   the text before it back.
 - The status bar shows the cursor's line and column and the file's encoding.
+- **Building and running** a CMake project (one with `CMakeLists.txt`): when
+  the project opens, it is configured in the background into
+  `<project>/build` (`cmake -S <project> -B <project>/build`, with no options
+  of its own: the project's defaults); a failure shows CMake's output. The
+  list on the toolbar holds the project's executable targets; the one chosen
+  is remembered for the project. **Build** (hammer, Ctrl+F9) saves the
+  modified files and builds the chosen target (`cmake --build build --target
+  <name>`; everything when there is none), **Run** (Shift+F10) builds it and
+  then starts the program in its build directory. Both run in a terminal
+  window — gnome-terminal when installed, else the desktop's (konsole,
+  xfce4-terminal, mate-terminal, qterminal, xterm); the setting
+  `run/terminal` names another — which stays open with the exit status until
+  Enter is pressed. **Build → Configure Project** configures again; the
+  targets are read again whenever the window becomes active (a build
+  reconfigures by itself after `CMakeLists.txt` changed).
 - The window's size, position and the width of the tree are restored at the
   next start, from `~/.config/eudahub/eudaimonia.conf`.
 - **Help → About** names the commit built and its time (with `+changes`

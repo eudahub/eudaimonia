@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "MainWindow.h"
 
+#include "Terminal.h"
 #include "build_info.h"
 
 #include <mrutabwidget.h>
@@ -10,6 +11,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -24,11 +26,13 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QProcess>
 #include <QPushButton>
 #include <QSettings>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QToolBar>
 #include <QTreeView>
 #include <QVBoxLayout>
 
@@ -123,6 +127,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setCentralWidget(m_splitter);
 
     createMenus();
+    createBuildBar();
     updateRecentProjects();
     updateTitle();
     resize(1200, 800);
@@ -150,10 +155,7 @@ void MainWindow::createMenus() {
         if (QWidget* page = m_tabs->currentWidget()) saveTab(page, true);
     });
     saveAs->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
-    QAction* saveAll = file->addAction(tr("Save A&ll"), this, [this] {
-        for (const auto& [page, editor] : m_editors)
-            if (editor->view->isModified()) saveTab(page);
-    });
+    QAction* saveAll = file->addAction(tr("Save A&ll"), this, &MainWindow::saveAll);
     saveAll->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_S));
     file->addSeparator();
     QAction* quit = file->addAction(tr("&Quit"), this, &QWidget::close);
@@ -204,6 +206,7 @@ bool MainWindow::openProject(const QString& directory) {
         statusBar()->showMessage(tr("Cannot save the recent projects: %1").arg(error), 5000);
     updateRecentProjects();
     updateTitle();
+    setUpBuild();
     return true;
 }
 
@@ -342,6 +345,169 @@ void MainWindow::updateStatus() {
     m_position->setText(tr("Line %1, Column %2   %3").arg(position.line + 1).arg(position.column + 1).arg(view->encoding()));
 }
 
+bool MainWindow::saveAll() {
+    for (const auto& [page, editor] : m_editors)
+        if (editor->view->isModified() && !saveTab(page)) return false;
+    return true;
+}
+
+namespace {
+
+// The setting naming the target run in a project.
+QString runTargetKey(const QString& project) {
+    return QStringLiteral("runTarget/") + QString::fromLatin1(project.toUtf8().toHex());
+}
+
+} // namespace
+
+void MainWindow::createBuildBar() {
+    QToolBar* bar = addToolBar(tr("Build"));
+    bar->setObjectName(QStringLiteral("buildBar"));
+    m_targetBox = new QComboBox;
+    m_targetBox->setMinimumContentsLength(16);
+    m_targetBox->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    m_targetBox->setToolTip(tr("The program Run starts"));
+    connect(m_targetBox, &QComboBox::activated, this, [this] {
+        QSettings().setValue(runTargetKey(m_projectDirectory), m_targetBox->currentText());
+    });
+    bar->addWidget(m_targetBox);
+
+    QMenu* build = menuBar()->insertMenu(menuBar()->actions().last(), new QMenu(tr("&Build"), this))->menu();
+    m_buildAction = build->addAction(QIcon(QStringLiteral(":/icons/hammer.svg")), tr("&Build"), this,
+                                     [this] { buildAndRun(false); });
+    m_buildAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F9));
+    m_buildAction->setToolTip(tr("Build the chosen target (Ctrl+F9)"));
+    m_runAction = build->addAction(QIcon(QStringLiteral(":/icons/run.svg")), tr("&Run"), this,
+                                   [this] { buildAndRun(true); });
+    m_runAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F10));
+    m_runAction->setToolTip(tr("Build the chosen target and run it (Shift+F10)"));
+    build->addSeparator();
+    m_configureAction = build->addAction(tr("&Configure Project"), this, &MainWindow::configure);
+    bar->addAction(m_buildAction);
+    bar->addAction(m_runAction);
+    updateBuildActions();
+}
+
+QString MainWindow::buildDirectory() const {
+    return QDir(m_projectDirectory).filePath(QStringLiteral("build"));
+}
+
+void MainWindow::setUpBuild() {
+    if (m_configuring) {
+        // The configuration of the project left: its end is of no interest.
+        disconnect(m_configuring, nullptr, this, nullptr);
+        m_configuring->kill();
+        m_configuring->deleteLater();
+        m_configuring = nullptr;
+    }
+    m_buildSystem = nullptr;
+    m_targets.clear();
+    m_targetBox->clear();
+    // A project the build system plugin does not know has nothing to build;
+    // without the plugin Build and Run say so when used.
+    if (auto* buildSystem = m_plugins.plugin<BuildSystem>()) {
+        if (buildSystem->recognizes(m_projectDirectory)) {
+            m_buildSystem = buildSystem;
+            configure();
+        }
+    } else if (QFileInfo(QDir(m_projectDirectory).filePath(QStringLiteral("CMakeLists.txt"))).isFile()) {
+        statusBar()->showMessage(tr("No build system plugin: the project cannot be built here"), 10000);
+    }
+    updateBuildActions();
+}
+
+void MainWindow::configure() {
+    if (!m_buildSystem || m_configuring) return;
+    const BuildCommand command = m_buildSystem->configureCommand(m_projectDirectory, buildDirectory());
+    auto* process = new QProcess(this);
+    m_configuring = process;
+    process->setProcessChannelMode(QProcess::MergedChannels);
+    process->setWorkingDirectory(command.workingDirectory);
+    const QString project = m_projectDirectory;
+    statusBar()->showMessage(tr("Configuring %1 with %2...").arg(QFileInfo(project).fileName(), m_buildSystem->name()));
+    connect(process, &QProcess::finished, this, [this, process, project](int exitCode, QProcess::ExitStatus status) {
+        process->deleteLater();
+        m_configuring = nullptr;
+        if (project != m_projectDirectory) return;  // another project meanwhile
+        updateBuildActions();
+        if (status != QProcess::NormalExit || exitCode != 0) {
+            statusBar()->clearMessage();
+            QMessageBox box(QMessageBox::Warning, tr("Configure"),
+                            tr("Configuring %1 failed.").arg(QFileInfo(project).fileName()), QMessageBox::Ok, this);
+            box.setDetailedText(QString::fromLocal8Bit(process->readAll()));
+            box.exec();
+            loadTargets();
+            return;
+        }
+        statusBar()->showMessage(tr("Configured %1").arg(QFileInfo(project).fileName()), 3000);
+        loadTargets();
+    });
+    connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart) return;
+        statusBar()->showMessage(tr("Cannot start %1: %2").arg(process->program(), process->errorString()), 10000);
+        process->deleteLater();
+        m_configuring = nullptr;
+        updateBuildActions();
+    });
+    process->start(command.program, command.arguments);
+    updateBuildActions();
+}
+
+void MainWindow::loadTargets() {
+    if (!m_buildSystem) return;
+    QString error;
+    const QList<BuildTarget> targets = m_buildSystem->targets(buildDirectory(), &error);
+    QList<BuildTarget> executables;
+    for (const BuildTarget& target : targets)
+        if (!target.executable.isEmpty()) executables << target;
+    const QString current = m_targetBox->currentText();
+    m_targets = executables;
+    m_targetBox->clear();
+    for (const BuildTarget& target : m_targets) m_targetBox->addItem(target.name);
+    // The target chosen before in this project, or the only one.
+    const QString remembered = QSettings().value(runTargetKey(m_projectDirectory), current).toString();
+    const int index = m_targetBox->findText(remembered);
+    m_targetBox->setCurrentIndex(index >= 0 ? index : 0);
+    if (!error.isEmpty()) statusBar()->showMessage(error, 5000);
+    updateBuildActions();
+}
+
+void MainWindow::updateBuildActions() {
+    const bool idle = m_buildSystem && !m_configuring;
+    m_configureAction->setEnabled(idle);
+    m_buildAction->setEnabled(idle);
+    m_runAction->setEnabled(idle && m_targetBox->count() > 0);
+    m_targetBox->setEnabled(m_targetBox->count() > 0);
+}
+
+void MainWindow::buildAndRun(bool run) {
+    if (!m_buildSystem) {
+        if (!m_plugins.plugin<BuildSystem>())
+            QMessageBox::critical(this, tr("Build System Plugin Missing"),
+                                  m_plugins.missingMessage(QStringLiteral(EUDAIMONIA_BUILDSYSTEM_IID), tr("Building")));
+        return;
+    }
+    if (!saveAll()) return;
+    const int index = m_targetBox->currentIndex();
+    const BuildTarget* target = index >= 0 && index < m_targets.size() ? &m_targets[index] : nullptr;
+    if (run && !target) return;
+    // Without a chosen target Build builds everything.
+    const BuildCommand build = m_buildSystem->buildCommand(buildDirectory(), target ? target->name : QString());
+    QString script = QStringLiteral("cd %1 && %2")
+                         .arg(Terminal::quote(build.workingDirectory), Terminal::command(build.program, build.arguments));
+    QString title = tr("Build %1").arg(target ? target->name : QFileInfo(m_projectDirectory).fileName());
+    if (run) {
+        // The program runs in its build directory, as CLion runs it.
+        const QString directory = QFileInfo(target->executable).absolutePath();
+        script += QStringLiteral(" && cd %1 && %2")
+                      .arg(Terminal::quote(directory), Terminal::command(target->executable, {}));
+        title = tr("Run %1").arg(target->name);
+    }
+    QString error;
+    if (!Terminal::run(script, m_projectDirectory, title, &error))
+        QMessageBox::warning(this, title, error);
+}
+
 void MainWindow::chooseProject() {
     const QString start = m_projectDirectory.isEmpty() ? QDir::homePath() : m_projectDirectory;
     const QString directory =
@@ -426,7 +592,11 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
 void MainWindow::changeEvent(QEvent* event) {
     QMainWindow::changeEvent(event);
-    if (event->type() == QEvent::ActivationChange && isActiveWindow()) checkExternalChanges();
+    if (event->type() == QEvent::ActivationChange && isActiveWindow()) {
+        checkExternalChanges();
+        // A build in the terminal may have configured the project again.
+        if (m_buildSystem && !m_configuring) loadTargets();
+    }
 }
 
 } // namespace eudaimonia
