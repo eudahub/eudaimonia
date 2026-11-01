@@ -158,6 +158,13 @@ if(EUDAIMONIA_BUILD_TESTS)
     add_test(NAME plugin_manager COMMAND test_plugin_manager)
     set_tests_properties(plugin_manager PROPERTIES TIMEOUT 20)
 
+    # The memory of a build and of the computer (/proc).
+    add_executable(test_build_monitor tests/test_build_monitor.cpp src/app/BuildMonitor.cpp)
+    target_include_directories(test_build_monitor PRIVATE src/app)
+    target_link_libraries(test_build_monitor PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME build_monitor COMMAND test_build_monitor)
+    set_tests_properties(build_monitor PROPERTIES TIMEOUT 30)
+
     # The CMake plugin on a small project configured and built by the test.
     add_executable(test_cmake_plugin tests/test_cmake_plugin.cpp)
     target_compile_definitions(test_cmake_plugin PRIVATE
