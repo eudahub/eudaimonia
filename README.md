@@ -56,13 +56,16 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   Enter is pressed. **Build → Configure Project** configures again; the
   targets are read again whenever the window becomes active (a build
   reconfigures by itself after `CMakeLists.txt` changed).
-- **Build → Build Tool** chooses what builds a new `build/`: CMake's default
-  (make, or `CMAKE_GENERATOR` from the environment), **Ninja** or **Unix
-  Makefiles** (those installed). A `build/` configured already keeps its
-  tool (the status bar says when it differs from the choice); choosing
-  another asks whether to configure it afresh (`cmake --fresh`, CMake 3.24 or
-  later), after which everything is built again. The menu shows the tool
-  `build/` uses.
+- **Build → Build Tool** chooses what builds a new `build/`: **Ninja** (the
+  default when installed), **Unix Makefiles**, or CMake's own default (make,
+  or `CMAKE_GENERATOR` from the environment). A `build/` configured already
+  keeps its tool (the status bar says when it differs from the choice);
+  choosing another asks whether to configure it afresh: the cache and the
+  old generator's files go, also those of FetchContent's sub-builds
+  (`_deps/*-subbuild`), while the fetched sources stay; then everything is
+  built again. A `build/` left half switched (e.g. by `cmake --fresh` with
+  another generator, which fails on such sub-builds) is mended by
+  configuring. The menu shows the tool `build/` uses.
 - **Links at once** (in the same menu: 1, 2 — the default —, 4, or as many
   as compiling) lets compiling use every processor while fewer links, which
   take much memory, run together — with Ninja only (a job pool:

@@ -11,6 +11,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QThread>
+#include <QUrl>
 
 using eudaimonia::BuildCommand;
 using eudaimonia::BuildSystem;
@@ -56,12 +57,27 @@ private slots:
         m_cmake = qobject_cast<BuildSystem*>(loader.instance());
         QVERIFY2(m_cmake, qPrintable(loader.errorString()));
         QVERIFY(m_project.isValid());
+        // A dependency fetched by FetchContent from an archive here: with
+        // policies of CMake 3.21 it gets a sub-build (_deps/dep-subbuild),
+        // configured with the project's generator.
+        QDir(m_project.path()).mkpath("dep-src");
+        write("dep-src/CMakeLists.txt", "add_library(dep STATIC dep.cpp)\n");
+        write("dep-src/dep.cpp", "int depth() { return 1; }\n");
+        QProcess tar;
+        tar.setWorkingDirectory(m_project.path());
+        tar.start(QStringLiteral("cmake"), {QStringLiteral("-E"), QStringLiteral("tar"), QStringLiteral("czf"),
+                                            QStringLiteral("dep.tar.gz"), QStringLiteral("dep-src")});
+        QVERIFY(tar.waitForFinished(30000) && tar.exitCode() == 0);
+        const QString archive = QUrl::fromLocalFile(m_project.filePath("dep.tar.gz")).toString();
         write("CMakeLists.txt",
-              "cmake_minimum_required(VERSION 3.16)\n"
+              "cmake_minimum_required(VERSION 3.21)\n"
               "project(sample LANGUAGES CXX)\n"
+              "include(FetchContent)\n"
+              "FetchContent_Declare(dep URL " + archive.toUtf8() + ")\n"
+              "FetchContent_MakeAvailable(dep)\n"
               "add_library(util STATIC util.cpp)\n"
               "add_executable(hello main.cpp)\n"
-              "target_link_libraries(hello PRIVATE util)\n");
+              "target_link_libraries(hello PRIVATE util dep)\n");
         write("util.cpp", "int answer() { return 42; }\n");
         write("main.cpp", "int answer();\nint main() { return answer() == 42 ? 0 : 1; }\n");
         m_build = m_project.filePath("build");
@@ -126,11 +142,13 @@ private slots:
         options.backend = QStringLiteral("Ninja");
         options.linkJobs = 1;
         const BuildCommand configure = m_cmake->configureCommand(m_project.path(), m_build, options);
-        QCOMPARE(configure.arguments.first(), QStringLiteral("--fresh"));
         QVERIFY(configure.arguments.contains(QStringLiteral("-G")));
         QVERIFY(configure.arguments.contains(QStringLiteral("-DCMAKE_JOB_POOLS=eudaimonia_link=1")));
+        // The fetched dependency's sub-build switches too.
         QVERIFY(run(configure));
         QCOMPARE(m_cmake->configuredBackend(m_build), QStringLiteral("Ninja"));
+        QCOMPARE(m_cmake->configuredBackend(QDir(m_build).filePath(QStringLiteral("_deps/dep-subbuild"))),
+                 QStringLiteral("Ninja"));
         // The pool of depth 1 and the link of hello in it.
         QFile rules(QDir(m_build).filePath(QStringLiteral("CMakeFiles/rules.ninja")));
         QVERIFY(rules.open(QIODevice::ReadOnly));
@@ -153,6 +171,22 @@ private slots:
         // Nothing of ours left to clear.
         QVERIFY(!m_cmake->configureCommand(m_project.path(), m_build, options)
                      .arguments.contains(QStringLiteral("-UCMAKE_JOB_POOL_LINK")));
+    }
+
+    // "cmake --fresh" with another generator fails on the sub-build of the
+    // old one and leaves the cache naming the new generator without its
+    // files; configuring again mends it.
+    void mendsADirectoryLeftHalfSwitched() {
+        if (!m_cmake->backends().contains(QStringLiteral("Ninja"))) QSKIP("ninja is not installed");
+        QVERIFY(!run({QStringLiteral("cmake"),
+                      {QStringLiteral("--fresh"), QStringLiteral("-S"), m_project.path(), QStringLiteral("-B"), m_build,
+                       QStringLiteral("-G"), QStringLiteral("Unix Makefiles")},
+                      m_project.path()}));
+        QCOMPARE(m_cmake->configuredBackend(m_build), QStringLiteral("Unix Makefiles"));
+        QVERIFY(run(m_cmake->configureCommand(m_project.path(), m_build, {})));
+        QCOMPARE(m_cmake->configuredBackend(m_build), QStringLiteral("Unix Makefiles"));
+        QVERIFY(QFile::exists(QDir(m_build).filePath(QStringLiteral("Makefile"))));
+        QVERIFY(run(m_cmake->buildCommand(m_build, QStringLiteral("hello"))));
     }
 
     // The environment's parallel level wins over the processors' count.

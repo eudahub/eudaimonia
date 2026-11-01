@@ -55,8 +55,8 @@ public:
     // CMakeLists.txt).
     virtual bool recognizes(const QString& projectDir) const = 0;
 
-    // The tools that can do the building, installed here, e.g. CMake's
-    // generators {"Ninja", "Unix Makefiles"}.
+    // The tools that can do the building, installed here, the preferred
+    // first, e.g. CMake's generators {"Ninja", "Unix Makefiles"}.
     virtual QStringList backends() const = 0;
     // The tool `buildDir` was configured with; empty when it was not
     // configured yet.

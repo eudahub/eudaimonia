@@ -56,7 +56,8 @@ public:
 
     QStringList backends() const override
     {
-        // The generators whose build tool is installed.
+        // The generators whose build tool is installed; Ninja first: faster
+        // on rebuilds, and it can limit the links running at once.
         QStringList result;
         if (!QStandardPaths::findExecutable(QStringLiteral("ninja")).isEmpty()) result << QStringLiteral("Ninja");
         if (!QStandardPaths::findExecutable(QStringLiteral("make")).isEmpty())
@@ -87,11 +88,16 @@ public:
         if (!query.exists() && query.open(QIODevice::WriteOnly)) query.close();
         QStringList arguments{QStringLiteral("-S"), projectDir, QStringLiteral("-B"), buildDir};
         const QString configured = configuredBackend(buildDir);
-        if (!backend.isEmpty() && backend != configured) {
-            // Another generator than the cache's needs a new cache (CMake 3.24).
-            if (!configured.isEmpty()) arguments.prepend(QStringLiteral("--fresh"));
-            arguments << QStringLiteral("-G") << backend;
-        }
+        const QString wanted = backend.isEmpty() ? configured : backend;
+        // Another generator than the cache's, or FetchContent's sub-builds
+        // (_deps/*-subbuild) left with another one (e.g. by "cmake --fresh",
+        // which keeps them): what the old one keeps goes first, else their
+        // configuring fails. Built files and the fetched sources stay.
+        if (!configured.isEmpty() && (wanted != configured || subBuildsDiffer(buildDir, wanted)))
+            forgetGenerator(buildDir);
+        if (!backend.isEmpty() && backend != configured) arguments << QStringLiteral("-G") << backend;
+        else if (!configured.isEmpty() && configuredBackend(buildDir).isEmpty())
+            arguments << QStringLiteral("-G") << configured;  // the forgotten generator again
         // The links in a pool of their own (Ninja), set or cleared at every
         // configuration, so that the cache follows the option.
         const QString used = backend.isEmpty() ? configured : backend;
@@ -168,6 +174,30 @@ public:
     }
 
 private:
+    // Removes the cache and the generator's own files of buildDir and its
+    // FetchContent sub-builds; built files and fetched sources stay.
+    static void forgetGenerator(const QString& buildDir)
+    {
+        const QDir build(buildDir);
+        QFile::remove(build.filePath(QStringLiteral("CMakeCache.txt")));
+        QDir(build.filePath(QStringLiteral("CMakeFiles"))).removeRecursively();
+        const QDir deps(build.filePath(QStringLiteral("_deps")));
+        for (const QString& name : deps.entryList({QStringLiteral("*-subbuild")}, QDir::Dirs | QDir::NoDotAndDotDot))
+            QDir(deps.filePath(name)).removeRecursively();
+    }
+
+    // A FetchContent sub-build of buildDir was configured with another
+    // generator than `generator`.
+    static bool subBuildsDiffer(const QString& buildDir, const QString& generator)
+    {
+        const QDir deps(QDir(buildDir).filePath(QStringLiteral("_deps")));
+        for (const QString& name : deps.entryList({QStringLiteral("*-subbuild")}, QDir::Dirs | QDir::NoDotAndDotDot)) {
+            const QString used = cacheValue(deps.filePath(name), "CMAKE_GENERATOR");
+            if (!used.isEmpty() && used != generator) return true;
+        }
+        return false;
+    }
+
     // The value of `name` in buildDir's CMakeCache.txt; empty without it.
     static QString cacheValue(const QString& buildDir, const QByteArray& name)
     {
