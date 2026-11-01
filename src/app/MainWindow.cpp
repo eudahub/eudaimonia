@@ -54,14 +54,35 @@ QString canonicalPath(const QString& path) {
 
 } // namespace
 
+// What the language servers report.
+struct MainWindow::LanguageListener : LanguageSupportListener {
+    MainWindow* window = nullptr;
+    void diagnostics(const QString& file, const QList<Diagnostic>& list) override {
+        window->showDiagnostics(file, list);
+    }
+    void message(const QString& text) override { window->statusBar()->showMessage(text, 10000); }
+};
+
 // A tab's editor, and what it tells the window.
 struct MainWindow::Editor : spp::EditorViewListener {
     MainWindow* window = nullptr;
     QWidget* page = nullptr;
     spp::EditorView* view = nullptr;
+    // The file the language servers know the tab by; empty when none does.
+    QString languageFile;
 
     void modificationChanged(bool) override { window->updateTabText(page); }
-    void filePathChanged(const QString&) override { window->updateTabText(page); }
+    void filePathChanged(const QString& path) override {
+        window->updateTabText(page);
+        // Saved under another name: the servers learn of the new file.
+        if (path != languageFile) {
+            window->languageClosed(*this);
+            window->languageOpened(*this);
+        }
+    }
+    void textChanged() override {
+        if (!languageFile.isEmpty() && window->m_language) window->m_language->changed(languageFile, view->text());
+    }
     void cursorMoved(spp::TextPosition) override {
         if (window->m_tabs->currentWidget() == page) window->updateStatus();
     }
@@ -115,6 +136,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(m_tabs, &MruTabWidget::tabClosed, this, [this](QWidget* page) {
         const auto editor = m_editors.find(page);
         if (editor == m_editors.end()) return;
+        languageClosed(*editor->second);
         editor->second->view->setListener(nullptr);
         m_editors.erase(editor);
     });
@@ -132,6 +154,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     createMenus();
     createBuildBar();
+    setUpLanguages();
     updateRecentProjects();
     updateTitle();
     resize(1200, 800);
@@ -141,6 +164,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 // The pages may outlive this object's own part: their editors tell no one.
 MainWindow::~MainWindow() {
     for (const auto& [page, editor] : m_editors) editor->view->setListener(nullptr);
+    // The language servers stop with the window.
+    if (m_language) {
+        m_language->setListener(nullptr);
+        m_language->shutdown();
+    }
 }
 
 void MainWindow::createMenus() {
@@ -211,6 +239,33 @@ bool MainWindow::openProject(const QString& directory) {
     updateRecentProjects();
     updateTitle();
     setUpBuild();
+    if (m_language) {
+        // The servers of the project; the documents open already go to them.
+        m_language->setProject(path, buildDirectory());
+        m_diagnostics.clear();
+        updateProblems();
+        for (auto& [page, editor] : m_editors) {
+            editor->languageFile.clear();
+            languageOpened(*editor);
+        }
+        // The servers the project needs and the computer lacks, told once a
+        // session each: another project may need other ones.
+        QStringList missing;
+        for (const LanguageServerInfo& server : m_language->serversFor(path)) {
+            if (server.installed || m_reportedMissingServers.contains(server.name)) continue;
+            m_reportedMissingServers.insert(server.name);
+            missing << tr("<li><b>%1</b> for %2 — install it with <code>%3</code></li>")
+                           .arg(server.name.toHtmlEscaped(), server.languages.toHtmlEscaped(),
+                                server.installHint.toHtmlEscaped());
+        }
+        if (!missing.isEmpty())
+            QMessageBox::information(
+                this, tr("Language Servers Missing"),
+                tr("<p>%1 has files whose language servers are not installed:</p><ul>%2</ul>"
+                   "<p>Without them those files get no diagnostics and no Go to Definition. "
+                   "Reopen the project after installing.</p>")
+                    .arg(QFileInfo(path).fileName().toHtmlEscaped(), missing.join(QString())));
+    }
     return true;
 }
 
@@ -242,7 +297,9 @@ bool MainWindow::openFile(const QString& filePath) {
     editor->page = page.get();
     editor->view = view;
     view->setListener(editor.get());
+    Editor& opened = *editor;
     m_editors.emplace(page.get(), std::move(editor));
+    languageOpened(opened);
     QWidget* added = page.release();
     const int index = m_tabs->addTab(added, QFileInfo(path).fileName());
     updateTabText(added);
@@ -285,6 +342,9 @@ bool MainWindow::saveTab(QWidget* page, bool askName) {
         QMessageBox::warning(this, tr("Save"), tr("Cannot save %1: %2").arg(path, view->errorString()));
     if (result != spp::EditorResult::Ok) return false;
     statusBar()->showMessage(tr("Saved %1").arg(path), 3000);
+    const auto editor = m_editors.find(page);
+    if (m_language && editor != m_editors.end() && !editor->second->languageFile.isEmpty())
+        m_language->saved(editor->second->languageFile);
     return true;
 }
 
@@ -410,13 +470,7 @@ void MainWindow::createBuildBar() {
     connect(m_buildPanel, &BuildPanel::started, this, &MainWindow::updateBuildActions);
     connect(m_buildPanel, &BuildPanel::finished, this, &MainWindow::buildFinished);
     // A compiler's message clicked: its file at its line and column.
-    connect(m_buildPanel, &BuildPanel::locationActivated, this, [this](const QString& file, int line, int column) {
-        if (!openFile(file)) return;
-        spp::EditorView* view = viewOf(m_tabs->currentWidget());
-        if (!view) return;
-        view->setCursorPosition({line - 1, std::max(0, column - 1)});
-        view->widget()->setFocus();
-    });
+    connect(m_buildPanel, &BuildPanel::locationActivated, this, &MainWindow::openLocation);
     m_buildDock = new QDockWidget(tr("Build"), this);
     m_buildDock->setObjectName(QStringLiteral("buildDock"));
     m_buildDock->setWidget(m_buildPanel);
@@ -672,6 +726,139 @@ void MainWindow::runProgram(const QString& program, const QString& name) {
         return;
     }
     m_runPanel->start(program, {}, directory);
+}
+
+void MainWindow::setUpLanguages() {
+    m_language = m_plugins.plugin<LanguageSupport>();
+    if (m_language) {
+        m_languageListener = std::make_unique<LanguageListener>();
+        m_languageListener->window = this;
+        m_language->setListener(m_languageListener.get());
+    }
+
+    // The problems the servers found, each opening its place.
+    m_problems = new QListWidget;
+    auto open = [this](QListWidgetItem* item) {
+        openLocation(item->data(Qt::UserRole).toString(), item->data(Qt::UserRole + 1).toInt(),
+                     item->data(Qt::UserRole + 2).toInt());
+    };
+    connect(m_problems, &QListWidget::itemActivated, this, open);
+    connect(m_problems, &QListWidget::itemClicked, this, open);
+    m_problemsDock = new QDockWidget(tr("Problems"), this);
+    m_problemsDock->setObjectName(QStringLiteral("problemsDock"));
+    m_problemsDock->setWidget(m_problems);
+    addDockWidget(Qt::BottomDockWidgetArea, m_problemsDock);
+    tabifyDockWidget(m_buildDock, m_problemsDock);
+    m_problemsDock->hide();
+
+    QMenu* navigate = menuBar()->insertMenu(menuBar()->actions().last(), new QMenu(tr("&Navigate"), this))->menu();
+    QAction* definition = navigate->addAction(tr("Go to &Definition"), this, &MainWindow::goToDefinition);
+    definition->setShortcut(QKeySequence(Qt::Key_F12));
+    navigate->addAction(m_problemsDock->toggleViewAction());
+}
+
+void MainWindow::languageOpened(Editor& editor) {
+    const QString file = editor.view->filePath();
+    if (!m_language || file.isEmpty() || !m_language->handles(file)) return;
+    editor.languageFile = file;
+    m_language->opened(file, editor.view->text());
+}
+
+void MainWindow::languageClosed(Editor& editor) {
+    if (!m_language || editor.languageFile.isEmpty()) return;
+    const QString file = editor.languageFile;
+    editor.languageFile.clear();
+    m_language->closed(file);  // its diagnostics go with it
+}
+
+void MainWindow::showDiagnostics(const QString& file, const QList<Diagnostic>& list) {
+    if (list.isEmpty()) m_diagnostics.remove(file);
+    else m_diagnostics.insert(file, list);
+    for (const auto& [page, editor] : m_editors) {
+        if (editor->languageFile != file) continue;
+        QList<spp::TextMark> marks;
+        for (const Diagnostic& diagnostic : list) {
+            spp::TextMark mark;
+            mark.start = {diagnostic.start.line, diagnostic.start.column};
+            mark.end = {diagnostic.end.line, diagnostic.end.column};
+            mark.kind = diagnostic.severity == Diagnostic::Severity::Error     ? spp::TextMark::Kind::Error
+                        : diagnostic.severity == Diagnostic::Severity::Warning ? spp::TextMark::Kind::Warning
+                        : diagnostic.severity == Diagnostic::Severity::Hint    ? spp::TextMark::Kind::Hint
+                                                                               : spp::TextMark::Kind::Information;
+            mark.message = diagnostic.source.isEmpty() ? diagnostic.message
+                                                       : diagnostic.source + QStringLiteral(": ") + diagnostic.message;
+            marks << mark;
+        }
+        editor->view->setMarks(marks);
+    }
+    updateProblems();
+}
+
+void MainWindow::updateProblems() {
+    m_problems->clear();
+    int errors = 0;
+    int warnings = 0;
+    QStringList files = m_diagnostics.keys();
+    files.sort();
+    for (const QString& file : files) {
+        for (const Diagnostic& diagnostic : m_diagnostics.value(file)) {
+            const bool error = diagnostic.severity == Diagnostic::Severity::Error;
+            const bool warning = diagnostic.severity == Diagnostic::Severity::Warning;
+            errors += error;
+            warnings += warning;
+            const QString shown = !m_projectDirectory.isEmpty() && file.startsWith(m_projectDirectory + '/')
+                                      ? QDir(m_projectDirectory).relativeFilePath(file)
+                                      : file;
+            auto* item = new QListWidgetItem(QStringLiteral("%1:%2:%3: %4")
+                                                 .arg(shown)
+                                                 .arg(diagnostic.start.line + 1)
+                                                 .arg(diagnostic.start.column + 1)
+                                                 .arg(diagnostic.message.section(QLatin1Char('\n'), 0, 0)));
+            item->setToolTip(diagnostic.message);
+            item->setForeground(error ? QColor(0xc0, 0x10, 0x10) : warning ? QColor(0xa0, 0x60, 0x00) : QColor(0x40, 0x60, 0x90));
+            item->setData(Qt::UserRole, file);
+            item->setData(Qt::UserRole + 1, diagnostic.start.line + 1);
+            item->setData(Qt::UserRole + 2, diagnostic.start.column + 1);
+            m_problems->addItem(item);
+        }
+    }
+    m_problemsDock->setWindowTitle(errors || warnings ? tr("Problems (%1 errors, %2 warnings)").arg(errors).arg(warnings)
+                                                      : tr("Problems"));
+}
+
+void MainWindow::goToDefinition() {
+    const auto editor = m_editors.find(m_tabs->currentWidget());
+    if (editor == m_editors.end()) return;
+    if (!m_language) {
+        QMessageBox::critical(this, tr("Language Support Plugin Missing"),
+                              m_plugins.missingMessage(QStringLiteral(EUDAIMONIA_LANGUAGESUPPORT_IID), tr("Go to Definition")));
+        return;
+    }
+    if (editor->second->languageFile.isEmpty()) {
+        statusBar()->showMessage(tr("No language server for %1").arg(QFileInfo(editor->second->view->filePath()).fileName()),
+                                 5000);
+        return;
+    }
+    const spp::TextPosition cursor = editor->second->view->cursorPosition();
+    statusBar()->showMessage(tr("Looking for the definition..."));
+    m_language->findDefinition(editor->second->languageFile, {cursor.line, cursor.column},
+                               [this](const QList<SourceLocation>& locations) {
+                                   if (locations.isEmpty()) {
+                                       statusBar()->showMessage(tr("No definition found"), 5000);
+                                       return;
+                                   }
+                                   statusBar()->clearMessage();
+                                   const SourceLocation& first = locations.first();
+                                   openLocation(first.file, first.position.line + 1, first.position.column + 1);
+                               });
+}
+
+void MainWindow::openLocation(const QString& file, int line, int column) {
+    if (!openFile(file)) return;
+    spp::EditorView* view = viewOf(m_tabs->currentWidget());
+    if (!view) return;
+    view->setCursorPosition({line - 1, std::max(0, column - 1)});
+    view->widget()->setFocus();
 }
 
 void MainWindow::chooseProject() {

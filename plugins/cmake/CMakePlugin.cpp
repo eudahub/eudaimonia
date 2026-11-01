@@ -86,7 +86,10 @@ public:
         QDir(buildDir).mkpath(queryDir);
         QFile query(QDir(buildDir).filePath(queryDir + QStringLiteral("/codemodel-v2")));
         if (!query.exists() && query.open(QIODevice::WriteOnly)) query.close();
-        QStringList arguments{QStringLiteral("-S"), projectDir, QStringLiteral("-B"), buildDir};
+        // compile_commands.json, from which language servers (clangd) learn
+        // how each file is compiled.
+        QStringList arguments{QStringLiteral("-S"), projectDir, QStringLiteral("-B"), buildDir,
+                              QStringLiteral("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON")};
         const QString configured = configuredBackend(buildDir);
         const QString wanted = backend.isEmpty() ? configured : backend;
         // Another generator than the cache's, or FetchContent's sub-builds

@@ -5,9 +5,13 @@
 #include "RecentProjects.h"
 
 #include <eudaimonia/plugin/BuildSystem.h>
+#include <eudaimonia/plugin/LanguageSupport.h>
 
 #include <QMainWindow>
 #include <QPointer>
+
+#include <QHash>
+#include <QSet>
 
 #include <memory>
 #include <unordered_map>
@@ -55,6 +59,7 @@ protected:
 
 private:
     struct Editor;
+    struct LanguageListener;
 
     void createMenus();
     void chooseProject();
@@ -104,6 +109,19 @@ private:
     void updateBuildActions();
     QString buildDirectory() const;
 
+    // Language servers (the language support plugin): the open project's,
+    // told of the documents in the tabs.
+    void setUpLanguages();
+    // Tells the language servers that the tab shows its file now.
+    void languageOpened(Editor& editor);
+    void languageClosed(Editor& editor);
+    // A file's diagnostics: underlined in its tab and listed in Problems.
+    void showDiagnostics(const QString& file, const QList<Diagnostic>& list);
+    void updateProblems();
+    void goToDefinition();
+    // Opens the file at a line and column from 1 (0: the line's start).
+    void openLocation(const QString& file, int line, int column);
+
     QSplitter* m_splitter = nullptr;
     // The recent projects until a project is opened, then the project tree
     QStackedWidget* m_side = nullptr;
@@ -137,6 +155,13 @@ private:
     // The program to run once the one running in the panel has stopped.
     QString m_pendingProgram;
     QString m_pendingName;
+
+    LanguageSupport* m_language = nullptr;
+    std::unique_ptr<LanguageListener> m_languageListener;
+    QHash<QString, QList<Diagnostic>> m_diagnostics;  // by file
+    QSet<QString> m_reportedMissingServers;           // told once a session
+    QDockWidget* m_problemsDock = nullptr;
+    QListWidget* m_problems = nullptr;
     // The program to run when the build in progress succeeds; empty for Build.
     QString m_runAfterBuild;
     QString m_runName;

@@ -39,10 +39,22 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   with unsaved changes asks first. A reload is one undo step: Ctrl+Z brings
   the text before it back.
 - The status bar shows the cursor's line and column and the file's encoding.
+- **Language servers** check the code as it is typed (the language support
+  plugin, below): clangd for C and C++, neocmakelsp for CMake files,
+  rust-analyzer for Rust, pylsp for Python, and those of
+  `language-servers.json`. When a project opens, a window lists the servers
+  its files need that are not installed, with the command installing each —
+  once a session for each server, since another project may need others.
+  Their errors, warnings and hints are underlined in the editor (the message
+  shows when the mouse rests on one) and listed in **Navigate → Problems**,
+  where a click opens the place; an edit removes the underlines until the
+  server checked the new text. **Navigate → Go to Definition** (F12) opens
+  the definition of the symbol at the cursor.
 - **Building and running** a CMake project (one with `CMakeLists.txt`): when
   the project opens, it is configured in the background into
-  `<project>/build` (`cmake -S <project> -B <project>/build`, with no options
-  of its own: the project's defaults); a failure shows CMake's output. The
+  `<project>/build` (`cmake -S <project> -B <project>/build`, keeping the
+  project's defaults: of its own only the build tool, the link pool and
+  `compile_commands.json` for clangd); a failure shows CMake's output. The
   list on the toolbar holds the project's executable targets; the one chosen
   is remembered for the project. **Build** (hammer, Ctrl+F9) saves the
   modified files and builds the chosen target (`cmake --build build
@@ -128,7 +140,9 @@ its plugins are in `plugins/`:
 
 - `eudaimonia-cmake` (`eudaimonia::BuildSystem`): CMake projects — the
   command configuring a project (`cmake -S <project> -B <build>`, with only
-  the generator and the link pool the IDE asks for) and building it (`cmake --build <build> --parallel
+  the generator and the link pool the IDE asks for, and
+  `CMAKE_EXPORT_COMPILE_COMMANDS`, whose `compile_commands.json` tells
+  clangd how each file is compiled) and building it (`cmake --build <build> --parallel
   <logical processors>`, or one target), and the project's targets with their type and the program each
   executable builds, read from CMake's
   [file API](https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html)

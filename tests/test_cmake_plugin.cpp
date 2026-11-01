@@ -97,14 +97,16 @@ private slots:
     }
 
     void readsTheTargetsAfterConfiguring() {
-        // CMake's own default generator, with no options of the IDE.
+        // CMake's own default generator; of the IDE only compile_commands.json.
         qunsetenv("CMAKE_GENERATOR");
         QVERIFY(m_cmake->configuredBackend(m_build).isEmpty());
         const BuildCommand configure = m_cmake->configureCommand(m_project.path(), m_build, {});
         QCOMPARE(configure.program, QStringLiteral("cmake"));
         QCOMPARE(configure.arguments,
-                 QStringList({QStringLiteral("-S"), m_project.path(), QStringLiteral("-B"), m_build}));
+                 QStringList({QStringLiteral("-S"), m_project.path(), QStringLiteral("-B"), m_build,
+                              QStringLiteral("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON")}));
         QVERIFY(run(configure));
+        QVERIFY(QFile::exists(QDir(m_build).filePath(QStringLiteral("compile_commands.json"))));
         QCOMPARE(m_cmake->configuredBackend(m_build), QStringLiteral("Unix Makefiles"));
         QVERIFY(!m_cmake->supportsLinkJobs(QStringLiteral("Unix Makefiles")));
 
