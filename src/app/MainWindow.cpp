@@ -426,9 +426,10 @@ QString chosenBackend() {
     return QSettings().value(QStringLiteral("build/backend")).toString();
 }
 
-// Links (memory hungry) one at a time while compiling uses every job; on by default.
-bool linkOneAtATime() {
-    return QSettings().value(QStringLiteral("build/linkOneAtATime"), true).toBool();
+// At most this many links (memory hungry) at once while compiling uses every
+// job; 2 by default, 0: no limit.
+int linkJobs() {
+    return QSettings().value(QStringLiteral("build/linkJobs"), 2).toInt();
 }
 
 } // namespace
@@ -447,21 +448,27 @@ void MainWindow::fillBackendMenu() {
     add(buildSystem ? tr("Default of %1").arg(buildSystem->name()) : tr("Default"), QString());
     if (buildSystem)
         for (const QString& backend : buildSystem->backends()) add(backend, backend);
+    // Compiling uses every processor; links, which take much memory, fewer.
     m_backendMenu->addSeparator();
-    QAction* link = m_backendMenu->addAction(tr("Link One at a Time (Ninja)"), this, [this](bool checked) {
-        QSettings().setValue(QStringLiteral("build/linkOneAtATime"), checked);
-        // The build directory learns it by configuring.
-        if (m_buildSystem && m_buildSystem->supportsLinkJobs(m_buildSystem->configuredBackend(buildDirectory())))
-            configure();
-    });
-    link->setCheckable(true);
-    link->setChecked(linkOneAtATime());
-    link->setToolTip(tr("Compiling uses every processor, linking one at a time: links take much memory"));
+    m_backendMenu->addAction(tr("Links at once (Ninja):"))->setEnabled(false);
+    auto* linkGroup = new QActionGroup(m_backendMenu);
+    for (const int jobs : {1, 2, 4, 0}) {
+        QAction* action = m_backendMenu->addAction(jobs ? QString::number(jobs) : tr("As many as compiling"), this,
+                                                   [this, jobs] {
+            QSettings().setValue(QStringLiteral("build/linkJobs"), jobs);
+            // The build directory learns it by configuring.
+            if (m_buildSystem && m_buildSystem->supportsLinkJobs(m_buildSystem->configuredBackend(buildDirectory())))
+                configure();
+        });
+        action->setCheckable(true);
+        action->setChecked(jobs == linkJobs());
+        linkGroup->addAction(action);
+    }
     if (m_buildSystem) {
         const QString configured = m_buildSystem->configuredBackend(buildDirectory());
         m_backendMenu->addSeparator();
         QString state = configured.isEmpty() ? tr("build/ is not configured yet") : tr("build/ uses %1").arg(configured);
-        if (!configured.isEmpty() && linkOneAtATime() && !m_buildSystem->supportsLinkJobs(configured))
+        if (!configured.isEmpty() && linkJobs() > 0 && !m_buildSystem->supportsLinkJobs(configured))
             state += tr(", which links as many at once as it compiles");
         m_backendMenu->addAction(state)->setEnabled(false);
     }
@@ -490,7 +497,7 @@ void MainWindow::configure(bool switchBackend) {
         done = tr("build/ uses %1, not %2: Build → Build Tool switches it").arg(configured, chosenBackend());
     ConfigureOptions options;
     options.backend = backend;
-    options.linkJobs = linkOneAtATime() ? 1 : 0;
+    options.linkJobs = linkJobs();
     const BuildCommand command = m_buildSystem->configureCommand(m_projectDirectory, buildDirectory(), options);
     auto* process = new QProcess(this);
     m_configuring = process;

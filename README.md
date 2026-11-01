@@ -63,10 +63,11 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   another asks whether to configure it afresh (`cmake --fresh`, CMake 3.24 or
   later), after which everything is built again. The menu shows the tool
   `build/` uses.
-- **Link One at a Time** (in the same menu, on by default) lets compiling use
-  every processor while links, which take much memory, run one at a time —
-  with Ninja only (a job pool: `CMAKE_JOB_POOLS`, `CMAKE_JOB_POOL_LINK`);
-  make's `-j` counts every job alike. Turning it off removes only that pool.
+- **Links at once** (in the same menu: 1, 2 — the default —, 4, or as many
+  as compiling) lets compiling use every processor while fewer links, which
+  take much memory, run together — with Ninja only (a job pool:
+  `CMAKE_JOB_POOLS`, `CMAKE_JOB_POOL_LINK`); make's `-j` counts every job
+  alike. "As many as compiling" removes only that pool.
 - The window's size, position and the width of the tree are restored at the
   next start, from `~/.config/eudahub/eudaimonia.conf`.
 - **Help → About** names the commit built and its time (with `+changes`
