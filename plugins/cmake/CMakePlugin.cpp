@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The CMake build system: configures with "cmake -S <project> -B <build>",
-// builds with "cmake --build <build>", and reads the targets from CMake's
+// builds with "cmake --build <build> --parallel <logical processors>", and reads the targets from CMake's
 // file API (https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html),
 // which CMake writes when configuring, without parsing CMakeLists.txt.
 
@@ -13,6 +13,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QObject>
+#include <QThread>
 
 namespace eudaimonia {
 namespace {
@@ -118,6 +119,10 @@ public:
     BuildCommand buildCommand(const QString& buildDir, const QString& target) const override
     {
         QStringList arguments{QStringLiteral("--build"), buildDir};
+        // As many jobs as logical processors: "--parallel" alone would leave
+        // make without a limit. CMAKE_BUILD_PARALLEL_LEVEL, when set, decides.
+        if (qEnvironmentVariableIsEmpty("CMAKE_BUILD_PARALLEL_LEVEL"))
+            arguments << QStringLiteral("--parallel") << QString::number(QThread::idealThreadCount());
         if (!target.isEmpty()) arguments << QStringLiteral("--target") << target;
         return {QStringLiteral("cmake"), arguments, buildDir};
     }

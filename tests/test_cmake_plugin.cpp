@@ -10,6 +10,7 @@
 #include <QProcess>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QThread>
 
 using eudaimonia::BuildCommand;
 using eudaimonia::BuildSystem;
@@ -99,14 +100,24 @@ private slots:
     }
 
     void buildsTheProgramWhereItSays() {
+        qunsetenv("CMAKE_BUILD_PARALLEL_LEVEL");
+        const QString jobs = QString::number(QThread::idealThreadCount());
         const BuildCommand build = m_cmake->buildCommand(m_build, QStringLiteral("hello"));
-        QCOMPARE(build.arguments, QStringList({QStringLiteral("--build"), m_build, QStringLiteral("--target"),
-                                               QStringLiteral("hello")}));
+        QCOMPARE(build.arguments, QStringList({QStringLiteral("--build"), m_build, QStringLiteral("--parallel"), jobs,
+                                               QStringLiteral("--target"), QStringLiteral("hello")}));
         QVERIFY(run(build));
         const QString program = find(m_cmake->targets(m_build, nullptr), QStringLiteral("hello"))->executable;
         QVERIFY(QFile::exists(program));
         QCOMPARE(QProcess::execute(program, {}), 0);
+        QCOMPARE(m_cmake->buildCommand(m_build, {}).arguments,
+                 QStringList({QStringLiteral("--build"), m_build, QStringLiteral("--parallel"), jobs}));
+    }
+
+    // The environment's parallel level wins over the processors' count.
+    void leavesTheParallelLevelToTheEnvironment() {
+        qputenv("CMAKE_BUILD_PARALLEL_LEVEL", "3");
         QCOMPARE(m_cmake->buildCommand(m_build, {}).arguments, QStringList({QStringLiteral("--build"), m_build}));
+        qunsetenv("CMAKE_BUILD_PARALLEL_LEVEL");
     }
 };
 

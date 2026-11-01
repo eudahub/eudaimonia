@@ -45,8 +45,10 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   of its own: the project's defaults); a failure shows CMake's output. The
   list on the toolbar holds the project's executable targets; the one chosen
   is remembered for the project. **Build** (hammer, Ctrl+F9) saves the
-  modified files and builds the chosen target (`cmake --build build --target
-  <name>`; everything when there is none), **Run** (Shift+F10) builds it and
+  modified files and builds the chosen target (`cmake --build build
+  --parallel <N> --target <name>`, N being the number of logical processors,
+  unless `CMAKE_BUILD_PARALLEL_LEVEL` is set; everything when there is no
+  target), **Run** (Shift+F10) builds it and
   then starts the program in its build directory. Both run in a terminal
   window — gnome-terminal when installed, else the desktop's (konsole,
   xfce4-terminal, mate-terminal, qterminal, xterm); the setting
@@ -84,8 +86,8 @@ its plugins are in `plugins/`:
 
 - `eudaimonia-cmake` (`eudaimonia::BuildSystem`): CMake projects — the
   command configuring a project (`cmake -S <project> -B <build>`, with no
-  options of its own) and building it (`cmake --build <build>`, or one
-  target), and the project's targets with their type and the program each
+  options of its own) and building it (`cmake --build <build> --parallel
+  <logical processors>`, or one target), and the project's targets with their type and the program each
   executable builds, read from CMake's
   [file API](https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html)
   after configuring (CMake 3.14 or later), not by parsing `CMakeLists.txt`.
