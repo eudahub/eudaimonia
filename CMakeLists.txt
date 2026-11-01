@@ -49,6 +49,7 @@ FetchContent_MakeAvailable(siplasplas_plugins)
 # Eudaimonia's own plugin interfaces and plugins.
 add_subdirectory(api)
 add_subdirectory(plugins/cmake)
+add_subdirectory(plugins/lsp)
 
 add_executable(eudaimonia
     src/app/main.cpp
@@ -194,6 +195,17 @@ if(EUDAIMONIA_BUILD_TESTS)
     target_link_libraries(test_run_panel PRIVATE Qt6::Widgets Qt6::Test)
     add_test(NAME run_panel COMMAND test_run_panel)
     set_tests_properties(run_panel PROPERTIES TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # The language support plugin with a language server written for the test.
+    add_executable(test_lsp_plugin tests/test_lsp_plugin.cpp plugins/lsp/LspSession.cpp plugins/lsp/ServerSpec.cpp)
+    target_include_directories(test_lsp_plugin PRIVATE plugins/lsp)
+    target_compile_definitions(test_lsp_plugin PRIVATE
+        LSP_PLUGIN_FILE="$<TARGET_FILE:eudaimonia-lsp>"
+        FAKE_SERVER="${CMAKE_SOURCE_DIR}/tests/lsp/fake_server.py")
+    target_link_libraries(test_lsp_plugin PRIVATE eudaimonia::plugin-api Qt6::Core Qt6::Test)
+    add_dependencies(test_lsp_plugin eudaimonia-lsp)
+    add_test(NAME lsp_plugin COMMAND test_lsp_plugin)
+    set_tests_properties(lsp_plugin PROPERTIES TIMEOUT 60)
 
     # The CMake plugin on a small project configured and built by the test.
     add_executable(test_cmake_plugin tests/test_cmake_plugin.cpp)

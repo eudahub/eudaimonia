@@ -134,6 +134,23 @@ its plugins are in `plugins/`:
   [file API](https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html)
   after configuring (CMake 3.14 or later), not by parsing `CMakeLists.txt`.
 
+- `eudaimonia-lsp` (`eudaimonia::LanguageSupport`): language servers (the
+  [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)),
+  one client for any number of them, chosen by the documents' file names:
+  clangd for C and C++ (with the build directory's `compile_commands.json`
+  and a background index), neocmakelsp for `CMakeLists.txt` and `*.cmake`,
+  rust-analyzer for Rust, pylsp for Python. It finds which of them a
+  project needs by its files (build directories, `_deps` and hidden
+  directories left out) and whether they are installed, keeps the servers
+  told of the open documents (the whole text, sent once typing pauses for
+  300 ms), and passes on their diagnostics and the places of definitions.
+  `language-servers.json` in `~/.config/eudahub/eudaimonia` changes or adds
+  servers without rebuilding: a JSON array of objects with `name`,
+  `languages`, `program`, `arguments` (`${buildDir}` and `${projectDir}` are
+  replaced), `suffixes`, `fileNames`, `languageId`, `languageIds`
+  (`"suffix=id"`) and `installHint`; one with a known name replaces that
+  server, and `"program": ""` removes it.
+
 A feature whose plugin is missing reports an error that lists the searched
 directories; there are no built-in replacements. **Help → Plugins** shows the
 searched directories and what was found in them, and so does
@@ -168,7 +185,9 @@ sudo cmake --install build
 
 The fast offline tests (Qt Test, `qt6-base-dev`) are built by default
 (`-DEUDAIMONIA_BUILD_TESTS=OFF` leaves them out); the CMake plugin's test
-configures and builds a small project, so it needs cmake and a C++ compiler:
+configures and builds a small project, so it needs cmake and a C++ compiler,
+and the language support plugin's test runs a language server written in
+Python (python3) for it:
 
 ```sh
 ctest --test-dir build --output-on-failure
