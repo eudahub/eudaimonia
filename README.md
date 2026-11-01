@@ -81,6 +81,15 @@ cmake --build build
 ./build/eudaimonia
 ```
 
+Installing puts `bin/eudaimonia`, the editor plugin in
+`lib/eudaimonia/plugins` (with its encoding detection data), the launcher
+`share/applications/eudaimonia.desktop` and the icon into the prefix
+(`/usr/local` by default):
+
+```sh
+sudo cmake --install build
+```
+
 The fast offline tests (Qt Test, `qt6-base-dev`) are built by default
 (`-DEUDAIMONIA_BUILD_TESTS=OFF` leaves them out):
 
@@ -93,7 +102,9 @@ ctest --test-dir build --output-on-failure
 Eudaimonia is licensed under the GNU General Public License, version 3 only
 (GPL-3.0-only); see [LICENSE](LICENSE). It uses Qt under the LGPL-3.0,
 qt-extra under the LGPL-3.0, and loads the editor plugin of
-siplasplas-plugins (LGPL-3.0) with qcodeedit (LGPL-3.0-or-later). As section 14 of the GPL-3.0 allows, its author,
+siplasplas-plugins (LGPL-3.0) with qcodeedit (LGPL-3.0-or-later). The icons
+have their own licenses and authors, listed in
+[resources/ATTRIBUTIONS.md](resources/ATTRIBUTIONS.md). As section 14 of the GPL-3.0 allows, its author,
 Andrzej Borucki, or a person the author names publicly, is the proxy who may
 accept a later version of the GPL for Eudaimonia;
 [CONTRIBUTING.md](CONTRIBUTING.md) describes this and how contributions are

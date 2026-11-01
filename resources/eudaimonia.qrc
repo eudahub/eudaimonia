@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/">
+        <file>icons/eudaimonia.svg</file>
+        <file>icons/hammer.svg</file>
+        <file>icons/run.svg</file>
+        <file>icons/ladybug.svg</file>
+    </qresource>
+</RCC>

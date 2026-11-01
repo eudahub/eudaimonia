@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets)
@@ -52,7 +53,8 @@ add_executable(eudaimonia
     src/app/PluginManager.cpp
     src/app/PluginManager.h
     src/app/RecentProjects.cpp
-    src/app/RecentProjects.h)
+    src/app/RecentProjects.h
+    resources/eudaimonia.qrc)
 target_compile_definitions(eudaimonia PRIVATE
     EUDAIMONIA_VERSION="${PROJECT_VERSION}"
     EUDAIMONIA_PLUGIN_DIR_FROM_BIN="${EUDAIMONIA_PLUGIN_DIR_FROM_BIN}")
@@ -63,6 +65,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(eudaimonia PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 install(TARGETS eudaimonia RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+# The launcher and its icon (resources/ATTRIBUTIONS.md).
+install(FILES resources/eudaimonia.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(FILES resources/icons/eudaimonia.svg
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
 
 option(EUDAIMONIA_BUILD_TESTS "Build fast offline tests" ON)
 if(EUDAIMONIA_BUILD_TESTS)

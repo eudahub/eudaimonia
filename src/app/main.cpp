@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QFileInfo>
+#include <QIcon>
 #include <QTextStream>
 
 int main(int argc, char** argv) {
@@ -13,6 +14,9 @@ int main(int argc, char** argv) {
     QCoreApplication::setOrganizationName("eudahub");
     QCoreApplication::setApplicationName("eudaimonia");
     QCoreApplication::setApplicationVersion(EUDAIMONIA_VERSION);
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/eudaimonia.svg")));
+    // The launcher eudaimonia.desktop, e.g. for the icon on Wayland.
+    QGuiApplication::setDesktopFileName(QStringLiteral("eudaimonia"));
 
     QCommandLineParser parser;
     parser.setApplicationDescription("Integrated development environment");

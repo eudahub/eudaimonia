@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Eudaimonia
+GenericName=Integrated Development Environment
+Comment=Edit, build and run projects
+Icon=eudaimonia
+Exec=eudaimonia %F
+Terminal=false
+Categories=Development;IDE;TextEditor;
+Keywords=ide;editor;code;programming;cmake;
+StartupNotify=true
+StartupWMClass=eudaimonia
