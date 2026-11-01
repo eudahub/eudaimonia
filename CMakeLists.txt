@@ -30,6 +30,21 @@ file(RELATIVE_PATH EUDAIMONIA_PLUGIN_DIR_FROM_BIN
      "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}"
      "${CMAKE_INSTALL_PREFIX}/${EUDAIMONIA_PLUGIN_INSTALL_DIR}")
 
+# Shared plugins (github.com/siplasplas/siplasplas-plugins, LGPL-3.0-only):
+# the editor, spp-editor, which builds qcodeedit in (fetched, with cpg and
+# DiffMerge's diff library; needs ICU, libicu-dev). Built into the plugin
+# directories above. FETCHCONTENT_SOURCE_DIR_SIPLASPLAS_PLUGINS may name a
+# local checkout.
+set(SPP_PLUGIN_BUILD_DIR "${EUDAIMONIA_PLUGIN_BUILD_DIR}")
+set(SPP_PLUGIN_INSTALL_DIR "${EUDAIMONIA_PLUGIN_INSTALL_DIR}")
+set(SPP_BUILD_EDITOR ON)
+set(SPP_BUILD_ARCHIVE OFF)
+FetchContent_Declare(siplasplas_plugins
+    GIT_REPOSITORY https://github.com/siplasplas/siplasplas-plugins.git
+    GIT_TAG v0.5.0
+    GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(siplasplas_plugins)
+
 add_executable(eudaimonia
     src/app/main.cpp
     src/app/MainWindow.cpp
@@ -41,7 +56,9 @@ add_executable(eudaimonia
 target_compile_definitions(eudaimonia PRIVATE
     EUDAIMONIA_VERSION="${PROJECT_VERSION}"
     EUDAIMONIA_PLUGIN_DIR_FROM_BIN="${EUDAIMONIA_PLUGIN_DIR_FROM_BIN}")
-target_link_libraries(eudaimonia PRIVATE Qt6::Widgets qt-extra)
+target_link_libraries(eudaimonia PRIVATE Qt6::Widgets qt-extra siplasplas::plugin-api)
+# Without the editor plugin no file opens: build it with the program.
+add_dependencies(eudaimonia spp-editor)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(eudaimonia PRIVATE -Wall -Wextra -Wpedantic)
 endif()

@@ -3,6 +3,7 @@
 
 #include <mrutabwidget.h>
 #include <qxfiledialog.h>
+#include <siplasplas/plugin/EditorPlugin.h>
 
 #include <QAction>
 #include <QApplication>
@@ -13,7 +14,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFileSystemModel>
-#include <QFontDatabase>
 #include <QHeaderView>
 #include <QKeySequence>
 #include <QLabel>
@@ -33,7 +33,7 @@
 namespace eudaimonia {
 namespace {
 
-// Larger files are not opened: the temporary text view reads a file whole.
+// Larger files are not opened: the editor holds a file whole.
 constexpr qint64 maxFileSize = 32 * 1024 * 1024;
 
 QString canonicalPath(const QString& path) {
@@ -43,6 +43,22 @@ QString canonicalPath(const QString& path) {
 }
 
 } // namespace
+
+// A tab's editor, and what it tells the window.
+struct MainWindow::Editor : spp::EditorViewListener {
+    MainWindow* window = nullptr;
+    QWidget* page = nullptr;
+    spp::EditorView* view = nullptr;
+
+    void modificationChanged(bool) override { window->updateTabText(page); }
+    void filePathChanged(const QString&) override { window->updateTabText(page); }
+    void cursorMoved(spp::TextPosition) override {
+        if (window->m_tabs->currentWidget() == page) window->updateStatus();
+    }
+    void formatChanged() override {
+        if (window->m_tabs->currentWidget() == page) window->updateStatus();
+    }
+};
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_model = new QFileSystemModel(this);
@@ -79,7 +95,22 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_tabs->setDocumentMode(true);
     m_tabs->setMovable(true);
     m_tabs->setSharedTabWidths(true);
-    connect(m_tabs, &QTabWidget::currentChanged, this, [this] { updateTitle(); });
+    connect(m_tabs, &QTabWidget::currentChanged, this, [this] {
+        updateTitle();
+        updateStatus();
+    });
+    connect(m_tabs, &MruTabWidget::tabAboutToClose, this, [this](QWidget* page, bool, bool& allow) {
+        if (allow) allow = confirmClose(page);
+    });
+    connect(m_tabs, &MruTabWidget::tabClosed, this, [this](QWidget* page) {
+        const auto editor = m_editors.find(page);
+        if (editor == m_editors.end()) return;
+        editor->second->view->setListener(nullptr);
+        m_editors.erase(editor);
+    });
+
+    m_position = new QLabel;
+    statusBar()->addPermanentWidget(m_position);
 
     m_splitter = new QSplitter(Qt::Horizontal);
     m_splitter->addWidget(m_side);
@@ -96,6 +127,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     restoreState();
 }
 
+// The pages may outlive this object's own part: their editors tell no one.
+MainWindow::~MainWindow() {
+    for (const auto& [page, editor] : m_editors) editor->view->setListener(nullptr);
+}
+
 void MainWindow::createMenus() {
     QMenu* file = menuBar()->addMenu(tr("&File"));
     QAction* openProject = file->addAction(tr("Open &Project Directory..."), this, &MainWindow::chooseProject);
@@ -103,6 +139,20 @@ void MainWindow::createMenus() {
     QAction* openFile = file->addAction(tr("&Open File..."), this, &MainWindow::chooseFile);
     openFile->setShortcut(QKeySequence::Open);
     m_recentMenu = file->addMenu(tr("&Recent Projects"));
+    file->addSeparator();
+    QAction* save = file->addAction(tr("&Save"), this, [this] {
+        if (QWidget* page = m_tabs->currentWidget()) saveTab(page);
+    });
+    save->setShortcut(QKeySequence::Save);
+    QAction* saveAs = file->addAction(tr("Save &As..."), this, [this] {
+        if (QWidget* page = m_tabs->currentWidget()) saveTab(page, true);
+    });
+    saveAs->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
+    QAction* saveAll = file->addAction(tr("Save A&ll"), this, [this] {
+        for (const auto& [page, editor] : m_editors)
+            if (editor->view->isModified()) saveTab(page);
+    });
+    saveAll->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_S));
     file->addSeparator();
     QAction* quit = file->addAction(tr("&Quit"), this, &QWidget::close);
     quit->setShortcut(QKeySequence::Quit);
@@ -141,36 +191,133 @@ bool MainWindow::openFile(const QString& filePath) {
         m_tabs->setCurrentWidget(page);
         return true;
     }
-    QFile file(path);
-    if (file.size() > maxFileSize) {
+    if (QFileInfo(path).size() > maxFileSize) {
         QMessageBox::warning(this, tr("Open File"),
                              tr("%1 is larger than %2 MiB.").arg(path).arg(maxFileSize / (1024 * 1024)));
         return false;
     }
-    if (!file.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, tr("Open File"), tr("Cannot open %1: %2").arg(path, file.errorString()));
+    spp::EditorPlugin* plugin = editorPlugin();
+    if (!plugin) return false;
+    spp::EditorView* view = plugin->createEditor();
+    std::unique_ptr<QWidget> page(view->widget());
+    const spp::EditorResult result = view->open(path);
+    if (result != spp::EditorResult::Ok) {
+        if (result == spp::EditorResult::Failed)
+            QMessageBox::warning(this, tr("Open File"), tr("Cannot open %1: %2").arg(path, view->errorString()));
         return false;
     }
     if (!m_tabs->makeRoomForNewTab()) return false;
 
-    // Temporary read-only view until the editor plugin replaces it.
-    auto* view = new QPlainTextEdit;
-    view->setReadOnly(true);
-    view->setLineWrapMode(QPlainTextEdit::NoWrap);
-    view->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    view->setPlainText(QString::fromUtf8(file.readAll()));
+    auto editor = std::make_unique<Editor>();
+    editor->window = this;
+    editor->page = page.get();
+    editor->view = view;
+    view->setListener(editor.get());
+    m_editors.emplace(page.get(), std::move(editor));
+    QWidget* added = page.release();
+    const int index = m_tabs->addTab(added, QFileInfo(path).fileName());
+    updateTabText(added);
+    m_tabs->setCurrentIndex(index);
+    added->setFocus();
+    m_lastFileDirectory = QFileInfo(path).absolutePath();
+    const QStringList uncertain = view->uncertainEncodings();
+    if (!uncertain.isEmpty())
+        statusBar()->showMessage(tr("Encoding of %1 uncertain (%2); shown as %3")
+                                     .arg(QFileInfo(path).fileName(), uncertain.join(QStringLiteral(", ")),
+                                          view->encoding()),
+                                 10000);
+    return true;
+}
 
-    const QFileInfo info(path);
-    const int index = m_tabs->addTab(view, info.fileName());
-    m_tabs->setTabKey(view, path);
+spp::EditorPlugin* MainWindow::editorPlugin() {
+    if (auto* plugin = m_plugins.plugin<spp::EditorPlugin>()) return plugin;
+    QMessageBox::critical(this, tr("Editor Plugin Missing"),
+                          m_plugins.missingMessage(QStringLiteral(SPP_EDITOR_PLUGIN_IID), tr("Opening files")));
+    return nullptr;
+}
+
+spp::EditorView* MainWindow::viewOf(QWidget* page) const {
+    const auto editor = m_editors.find(page);
+    return editor == m_editors.end() ? nullptr : editor->second->view;
+}
+
+bool MainWindow::saveTab(QWidget* page, bool askName) {
+    spp::EditorView* view = viewOf(page);
+    if (!view) return false;
+    QString path = view->filePath();
+    if (askName || path.isEmpty()) {
+        const QString start = path.isEmpty() ? m_projectDirectory : path;
+        path = QxFileDialog::getSaveFileName(this, tr("Save As"), QFileInfo(start).absolutePath(), {},
+                                             QFileInfo(path).fileName());
+        if (path.isEmpty()) return false;
+    }
+    const spp::EditorResult result = path == view->filePath() ? view->save() : view->saveAs(path);
+    if (result == spp::EditorResult::Failed)
+        QMessageBox::warning(this, tr("Save"), tr("Cannot save %1: %2").arg(path, view->errorString()));
+    if (result != spp::EditorResult::Ok) return false;
+    statusBar()->showMessage(tr("Saved %1").arg(path), 3000);
+    return true;
+}
+
+bool MainWindow::confirmClose(QWidget* page) {
+    spp::EditorView* view = viewOf(page);
+    if (!view || !view->isModified()) return true;
+    m_tabs->setCurrentWidget(page);
+    const auto answer = QMessageBox::question(
+        this, tr("Unsaved Changes"), tr("%1 has unsaved changes. Save them?").arg(QFileInfo(view->filePath()).fileName()),
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
+    if (answer == QMessageBox::Save) return saveTab(page);
+    return answer == QMessageBox::Discard;
+}
+
+void MainWindow::checkExternalChanges() {
+    if (m_checkingExternalChanges) return;
+    m_checkingExternalChanges = true;
+    for (const auto& [page, editor] : m_editors) {
+        spp::EditorView* view = editor->view;
+        if (!view->hasExternalChanges()) continue;
+        const QString name = QFileInfo(view->filePath()).fileName();
+        // Reloading is an undo step: Ctrl+Z brings the text before back.
+        if (view->isModified()
+            && QMessageBox::question(this, tr("File Changed on Disk"),
+                                     tr("%1 changed on disk and has unsaved changes here. Load the disk version? "
+                                        "Undo brings your changes back.")
+                                         .arg(name))
+                   != QMessageBox::Yes) {
+            view->ignoreExternalChanges();
+            continue;
+        }
+        if (view->reload() == spp::EditorResult::Ok)
+            statusBar()->showMessage(tr("Reloaded %1, changed on disk").arg(name), 5000);
+        else
+            view->ignoreExternalChanges();
+    }
+    m_checkingExternalChanges = false;
+}
+
+void MainWindow::updateTabText(QWidget* page) {
+    spp::EditorView* view = viewOf(page);
+    const int index = m_tabs->indexOf(page);
+    if (!view || index < 0) return;
+    const QString path = view->filePath();
+    m_tabs->setTabKey(page, path);
+    m_tabs->setTabText(index, QFileInfo(path).fileName() + (view->isModified() ? QStringLiteral(" *") : QString()));
     m_tabs->setTabToolTip(index, path);
     const QString shown = !m_projectDirectory.isEmpty() && path.startsWith(m_projectDirectory + '/')
                               ? QDir(m_projectDirectory).relativeFilePath(path)
                               : path;
     m_tabs->setTabPopupText(index, shown);
-    m_tabs->setCurrentIndex(index);
-    m_lastFileDirectory = info.absolutePath();
-    return true;
+    if (page == m_tabs->currentWidget()) updateTitle();
+}
+
+void MainWindow::updateStatus() {
+    spp::EditorView* view = viewOf(m_tabs->currentWidget());
+    if (!view) {
+        m_position->clear();
+        return;
+    }
+    const spp::TextPosition position = view->cursorPosition();
+    m_position->setText(tr("Line %1, Column %2   %3").arg(position.line + 1).arg(position.column + 1).arg(view->encoding()));
 }
 
 void MainWindow::chooseProject() {
@@ -203,7 +350,8 @@ void MainWindow::updateRecentProjects() {
 
 void MainWindow::updateTitle() {
     QStringList parts;
-    if (QWidget* page = m_tabs->currentWidget()) parts << QFileInfo(m_tabs->tabKey(page)).fileName();
+    if (spp::EditorView* view = viewOf(m_tabs->currentWidget()))
+        parts << QFileInfo(view->filePath()).fileName() + (view->isModified() ? QStringLiteral(" *") : QString());
     if (!m_projectDirectory.isEmpty()) parts << QFileInfo(m_projectDirectory).fileName();
     parts << QStringLiteral("Eudaimonia");
     setWindowTitle(parts.join(QStringLiteral(" — ")));
@@ -245,8 +393,18 @@ void MainWindow::saveState() const {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    // Each tab with unsaved changes asks first; Cancel keeps the window.
+    if (!m_tabs->requestCloseAllTabs()) {
+        event->ignore();
+        return;
+    }
     saveState();
     event->accept();
+}
+
+void MainWindow::changeEvent(QEvent* event) {
+    QMainWindow::changeEvent(event);
+    if (event->type() == QEvent::ActivationChange && isActiveWindow()) checkExternalChanges();
 }
 
 } // namespace eudaimonia
