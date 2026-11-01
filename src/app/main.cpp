@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "MainWindow.h"
 
+#include "build_info.h"
+
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QFileInfo>
@@ -13,7 +15,8 @@ int main(int argc, char** argv) {
     // ~/.local/share/eudahub/eudaimonia.
     QCoreApplication::setOrganizationName("eudahub");
     QCoreApplication::setApplicationName("eudaimonia");
-    QCoreApplication::setApplicationVersion(EUDAIMONIA_VERSION);
+    QCoreApplication::setApplicationVersion(QStringLiteral(EUDAIMONIA_VERSION " (commit " EUDAIMONIA_COMMIT
+                                                           ", " EUDAIMONIA_COMMIT_TIME ")"));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/eudaimonia.svg")));
     // The launcher eudaimonia.desktop, e.g. for the icon on Wayland.
     QGuiApplication::setDesktopFileName(QStringLiteral("eudaimonia"));

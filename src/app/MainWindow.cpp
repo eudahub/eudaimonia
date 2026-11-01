@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "MainWindow.h"
 
+#include "build_info.h"
+
 #include <mrutabwidget.h>
 #include <qxfiledialog.h>
 #include <siplasplas/plugin/EditorPlugin.h>
@@ -160,10 +162,30 @@ void MainWindow::createMenus() {
     QMenu* help = menuBar()->addMenu(tr("&Help"));
     help->addAction(tr("&Plugins..."), this, &MainWindow::showPlugins);
     help->addAction(tr("&About Eudaimonia"), this, [this] {
+        // What was built, so that it is plain which versions are in use.
+        struct Component {
+            const char* name;
+            const char* tag;
+            const char* commit;
+            const char* time;
+        };
+        static const Component components[] = {EUDAIMONIA_COMPONENTS};
+        QStringList built;
+        for (const Component& component : components) {
+            QString line = QStringLiteral("%1 %2").arg(QString::fromUtf8(component.name),
+                                                       QString::fromUtf8(component.tag));
+            if (*component.commit)
+                line += QStringLiteral(" (%1, %2)").arg(QString::fromUtf8(component.commit),
+                                                        QString::fromUtf8(component.time));
+            built << line.toHtmlEscaped();
+        }
         QMessageBox::about(this, tr("About Eudaimonia"),
-                           tr("<b>Eudaimonia</b> %1<br>An integrated development environment.<br>"
-                              "Licensed under the GNU General Public License, version 3 only.")
-                               .arg(QStringLiteral(EUDAIMONIA_VERSION)));
+                           tr("<b>Eudaimonia</b> %1<br>Commit %2, %3<br>An integrated development "
+                              "environment.</p><p>Built with:<br>%4<br>Qt %5 (running %6)</p>"
+                              "<p>Licensed under the GNU General Public License, version 3 only.")
+                               .arg(QStringLiteral(EUDAIMONIA_VERSION), QStringLiteral(EUDAIMONIA_COMMIT),
+                                    QStringLiteral(EUDAIMONIA_COMMIT_TIME), built.join(QStringLiteral("<br>")),
+                                    QStringLiteral(QT_VERSION_STR), QString::fromLatin1(qVersion())));
     });
 }
 

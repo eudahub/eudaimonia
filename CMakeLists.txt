@@ -59,6 +59,38 @@ target_compile_definitions(eudaimonia PRIVATE
     EUDAIMONIA_VERSION="${PROJECT_VERSION}"
     EUDAIMONIA_PLUGIN_DIR_FROM_BIN="${EUDAIMONIA_PLUGIN_DIR_FROM_BIN}")
 target_link_libraries(eudaimonia PRIVATE Qt6::Widgets qt-extra siplasplas::plugin-api)
+
+# Help → About names the commit built and its time, and those of the
+# components built in, so that it is plain which versions a build uses:
+# build_info.h, written at every build (cmake/build_info.cmake).
+set(EUDAIMONIA_COMPONENTS)
+get_target_property(qt_extra_imported qt-extra IMPORTED)
+if(qt_extra_imported)
+    list(APPEND EUDAIMONIA_COMPONENTS "qt-extra=@${qt-extra_VERSION} (installed)")
+else()
+    list(APPEND EUDAIMONIA_COMPONENTS "qt-extra=${qt-extra_SOURCE_DIR}")
+endif()
+list(APPEND EUDAIMONIA_COMPONENTS "siplasplas-plugins=${siplasplas_plugins_SOURCE_DIR}")
+# Fetched by the editor plugin, which builds them in.
+foreach(component qcodeedit cpg)
+    FetchContent_GetProperties(${component} SOURCE_DIR component_dir)
+    if(component_dir)
+        list(APPEND EUDAIMONIA_COMPONENTS "${component}=${component_dir}")
+    endif()
+endforeach()
+# '|' between the components: ';' would split the command's argument.
+string(REPLACE ";" "|" EUDAIMONIA_COMPONENTS "${EUDAIMONIA_COMPONENTS}")
+add_custom_target(eudaimonia_build_info ALL
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+        "-DCOMPONENTS=${EUDAIMONIA_COMPONENTS}"
+        -DOUTPUT=${CMAKE_BINARY_DIR}/generated/build_info.h
+        -P ${CMAKE_SOURCE_DIR}/cmake/build_info.cmake
+    BYPRODUCTS ${CMAKE_BINARY_DIR}/generated/build_info.h
+    COMMENT "Naming the commits built"
+    VERBATIM)
+add_dependencies(eudaimonia eudaimonia_build_info)
+target_include_directories(eudaimonia PRIVATE ${CMAKE_BINARY_DIR}/generated)
 # Without the editor plugin no file opens: build it with the program.
 add_dependencies(eudaimonia spp-editor)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

@@ -41,6 +41,11 @@ its files in tabs. Building and running follow.
 - The status bar shows the cursor's line and column and the file's encoding.
 - The window's size, position and the width of the tree are restored at the
   next start, from `~/.config/eudahub/eudaimonia.conf`.
+- **Help → About** names the commit built and its time (with `+changes`
+  when built with changes not committed yet), and the components built in:
+  their tag or installed version, commit and its time (qt-extra,
+  siplasplas-plugins, qcodeedit, cpg), so that it is plain which versions a
+  build uses. `eudaimonia --version` gives the commit too.
 
 Directories and files can also be given on the command line:
 
