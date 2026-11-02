@@ -9,6 +9,7 @@
 #include <mrutabwidget.h>
 #include <qxfiledialog.h>
 #include <siplasplas/plugin/EditorPlugin.h>
+#include <siplasplas/plugin/FindPlugin.h>
 
 #include <QAction>
 #include <QActionGroup>
@@ -82,6 +83,7 @@ struct MainWindow::Editor : spp::EditorViewListener {
     }
     void textChanged() override {
         if (!languageFile.isEmpty() && window->m_language) window->m_language->changed(languageFile, view->text());
+        if (window->m_findBar && window->m_tabs->currentWidget() == page) window->m_findBar->editorTextChanged();
     }
     // Ctrl over a word: a link when the language server knows its definition.
     void linkQueried(spp::TextPosition position) override {
@@ -160,6 +162,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             updateNavigationActions();
         }
         m_previousTab = m_tabs->currentWidget();
+        if (m_findBar) m_findBar->setEditor(viewOf(m_tabs->currentWidget()));
         updateTitle();
         updateStatus();
     });
@@ -178,9 +181,21 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_position = new QLabel;
     statusBar()->addPermanentWidget(m_position);
 
+    // The tabs, and under them the find bar (the find plugin's) working on
+    // the current tab's editor.
+    auto* editors = new QWidget;
+    auto* editorsLayout = new QVBoxLayout(editors);
+    editorsLayout->setContentsMargins(0, 0, 0, 0);
+    editorsLayout->setSpacing(0);
+    editorsLayout->addWidget(m_tabs, 1);
+    if (auto* find = m_plugins.plugin<spp::FindPlugin>()) {
+        m_findBar = find->createFindBar(editors);
+        editorsLayout->addWidget(m_findBar->widget());
+    }
+
     m_splitter = new QSplitter(Qt::Horizontal);
     m_splitter->addWidget(m_side);
-    m_splitter->addWidget(m_tabs);
+    m_splitter->addWidget(editors);
     m_splitter->setStretchFactor(0, 0);
     m_splitter->setStretchFactor(1, 1);
     m_splitter->setSizes({260, 900});
@@ -197,6 +212,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
 // The pages may outlive this object's own part: their editors tell no one.
 MainWindow::~MainWindow() {
+    if (m_findBar) m_findBar->setEditor(nullptr);
     for (const auto& [page, editor] : m_editors) editor->view->setListener(nullptr);
     // The language servers stop with the window.
     if (m_language) {
@@ -226,6 +242,25 @@ void MainWindow::createMenus() {
     file->addSeparator();
     QAction* quit = file->addAction(tr("&Quit"), this, &QWidget::close);
     quit->setShortcut(QKeySequence::Quit);
+
+    // Finding and replacing: the find bar under the tabs.
+    QMenu* edit = menuBar()->addMenu(tr("&Edit"));
+    auto withBar = [this](void (spp::FindBar::*act)()) {
+        return [this, act] {
+            if (!m_findBar) {
+                QMessageBox::critical(this, tr("Find Plugin Missing"),
+                                      m_plugins.missingMessage(QStringLiteral(SPP_FIND_PLUGIN_IID), tr("Finding")));
+                return;
+            }
+            if (m_tabs->currentWidget()) (m_findBar->*act)();
+        };
+    };
+    edit->addAction(tr("&Find..."), this, withBar(&spp::FindBar::showFind))->setShortcut(QKeySequence::Find);
+    edit->addAction(tr("&Replace..."), this, withBar(&spp::FindBar::showReplace))
+        ->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_R));
+    edit->addAction(tr("Find &Next"), this, withBar(&spp::FindBar::findNext))->setShortcut(QKeySequence(Qt::Key_F3));
+    edit->addAction(tr("Find &Previous"), this, withBar(&spp::FindBar::findPrevious))
+        ->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F3));
 
     QMenu* help = menuBar()->addMenu(tr("&Help"));
     help->addAction(tr("&Plugins..."), this, &MainWindow::showPlugins);

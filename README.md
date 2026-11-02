@@ -31,6 +31,15 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   programs using qcodeedit; without them, only C and C++ are coloured).
   When the encoding was guessed without confidence, the status bar says so.
   Files larger than 32 MiB are not opened.
+- **Edit → Find** (Ctrl+F) and **Replace** (Ctrl+R) open the find bar under
+  the tabs (the find plugin, `spp-findbar` of siplasplas-plugins), on the
+  current tab, with the selection as the text sought: it seeks as one types
+  and highlights every match ("3 of 17"), with match case (Alt+C), whole
+  words (Alt+W) and regular expressions (Alt+X); Enter and **Find Next** (F3)
+  go to the next match, Shift+Enter and **Find Previous** (Shift+F3) to the
+  previous one, around the end. Replace replaces the selected match and goes
+  to the next, Replace All replaces all as one undo step; in a regular
+  expression's replacement `$1` is its first group. Escape closes the bar.
 - **File → Save** (Ctrl+S), **Save As** (Ctrl+Shift+S) and **Save All**
   (Ctrl+Alt+S). A tab with unsaved changes has `*` after its name; closing it,
   or the window, asks whether to save them. Trailing spaces are removed from

@@ -33,6 +33,7 @@ class QTreeView;
 namespace spp {
 class EditorPlugin;
 class EditorView;
+class FindBar;
 }
 
 namespace eudaimonia {
@@ -137,6 +138,7 @@ private:
     QTreeView* m_tree = nullptr;
     QFileSystemModel* m_model = nullptr;
     MruTabWidget* m_tabs = nullptr;
+    spp::FindBar* m_findBar = nullptr;  // under the tabs; null without the find plugin
     QMenu* m_recentMenu = nullptr;
     QLabel* m_position = nullptr;
     QString m_projectDirectory;
