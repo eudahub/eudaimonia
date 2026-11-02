@@ -207,6 +207,28 @@ cmake --build build
 ./build/eudaimonia
 ```
 
+To work on the plugins together with the IDE, without a tag for each change,
+build from local checkouts next to this repository. A `CMakeUserPresets.json`
+here, which Git ignores, holds a preset for that (CMake's version 3 preset
+file, with the `dev` preset below in its `configurePresets`):
+
+```json
+{
+  "name": "dev",
+  "binaryDir": "${sourceDir}/build",
+  "cacheVariables": {
+    "FETCHCONTENT_SOURCE_DIR_SIPLASPLAS_PLUGINS": "${sourceDir}/../siplasplas-plugins",
+    "FETCHCONTENT_SOURCE_DIR_QCODEEDIT": "${sourceDir}/../qcodeedit"
+  }
+}
+```
+
+`cmake --preset dev` configures `build` that way once; `cmake --build build`
+then rebuilds what changed in those checkouts too. The choice stays in
+`build` until changed: a preset setting the same variables to empty strings
+goes back to the tags named in `CMakeLists.txt`. Help → About shows the commit
+of each checkout, with `+changes` when it has changes not committed.
+
 Installing puts `bin/eudaimonia`, the editor plugin in
 `lib/eudaimonia/plugins` (with its encoding detection data), the launcher
 `share/applications/eudaimonia.desktop` and the icon into the prefix
