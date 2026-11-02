@@ -154,6 +154,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_tabs->setDocumentMode(true);
     m_tabs->setMovable(true);
     m_tabs->setSharedTabWidths(true);
+    m_tabs->setTabsClosable(true);
     connect(m_tabs, &QTabWidget::currentChanged, this, [this] {
         // Leaving a tab is leaving a place (also for a file opened or a jump).
         if (!m_navigating && m_previousTab && m_previousTab != m_tabs->currentWidget()
@@ -239,12 +240,18 @@ void MainWindow::createMenus() {
     saveAs->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
     QAction* saveAll = file->addAction(tr("Save A&ll"), this, &MainWindow::saveAll);
     saveAll->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_S));
+    QAction* closeTab = file->addAction(tr("&Close Tab"), this, [this] {
+        if (m_tabs->currentWidget()) m_tabs->requestCloseTab(m_tabs->currentWidget());
+    });
+    closeTab->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F4));
     file->addSeparator();
     QAction* quit = file->addAction(tr("&Quit"), this, &QWidget::close);
     quit->setShortcut(QKeySequence::Quit);
 
     // Finding and replacing: the find bar under the tabs.
     QMenu* edit = menuBar()->addMenu(tr("&Edit"));
+    edit->addAction(tr("Select &Word"), this, &MainWindow::selectWord)->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_W));
+    edit->addSeparator();
     auto withBar = [this](void (spp::FindBar::*act)()) {
         return [this, act] {
             if (!m_findBar) {
@@ -934,6 +941,25 @@ void MainWindow::updateProblems() {
     }
     m_problemsDock->setWindowTitle(errors || warnings ? tr("Problems (%1 errors, %2 warnings)").arg(errors).arg(warnings)
                                                       : tr("Problems"));
+}
+
+void MainWindow::selectWord() {
+    spp::EditorView* view = viewOf(m_tabs->currentWidget());
+    if (!view) return;
+    const spp::TextPosition cursor = view->cursorPosition();
+    const QString line = view->text().section(QLatin1Char('\n'), cursor.line, cursor.line);
+    auto inWord = [&line](int column) {
+        if (column < 0 || column >= line.size()) return false;
+        const QChar c = line.at(column);
+        return c.isLetterOrNumber() || c.isMark() || c.isSurrogate() || c == QLatin1Char('_');
+    };
+    // The word the cursor is in, or the one it stands right after.
+    int start = inWord(cursor.column) ? cursor.column : cursor.column - 1;
+    if (!inWord(start)) return;
+    int end = start + 1;
+    while (inWord(start - 1)) --start;
+    while (inWord(end)) ++end;
+    view->setSelection({{cursor.line, start}, {cursor.line, end}});
 }
 
 void MainWindow::goToDefinition() {

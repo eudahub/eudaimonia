@@ -121,6 +121,8 @@ private:
     void showDiagnostics(const QString& file, const QList<Diagnostic>& list);
     void updateProblems();
     void goToDefinition();
+    // Selects the word at the cursor (Ctrl+W).
+    void selectWord();
     // Opens the file at a line and column from 1 (0: the line's start).
     void openLocation(const QString& file, int line, int column);
 

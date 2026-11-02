@@ -23,7 +23,10 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   first. They are kept in `recent-projects.json` in
   `~/.local/share/eudahub/eudaimonia`.
 - Tabs are an MRU tab widget: Ctrl+Tab switches to the most recently used
-  tab, tabs can be pinned and moved, Ctrl+W closes the current one.
+  tab, tabs can be pinned and moved. **File → Close Tab** (Ctrl+F4) closes the
+  current one; a close button shows on the current tab and on the one under
+  the mouse.
+- **Edit → Select Word** (Ctrl+W) selects the word at the cursor.
 - Files are edited in the editor plugin (`spp-editor` from
   siplasplas-plugins): opened in their encoding (detected; legacy code pages
   and UTF) and saved back the same way, with their line breaks, coloured by
