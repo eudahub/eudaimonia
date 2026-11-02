@@ -77,6 +77,11 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   `<project>/build` (`cmake -S <project> -B <project>/build`, keeping the
   project's defaults: of its own only the build tool, the link pool and
   `compile_commands.json` for clangd); a failure shows CMake's output. The
+  **build profile** on the toolbar, remembered for the project, chooses the
+  directory: **Default** is `build`, as above; **Debug** is `build-debug`
+  with `-DCMAKE_BUILD_TYPE=Debug`, **Release** `build-release` with
+  `-DCMAKE_BUILD_TYPE=Release`. Choosing one configures its directory, and
+  building, running and the language servers use it from then on. The
   list on the toolbar holds the project's executable targets; the one chosen
   is remembered for the project. **Build** (hammer, Ctrl+F9) saves the
   modified files and builds the chosen target (`cmake --build build

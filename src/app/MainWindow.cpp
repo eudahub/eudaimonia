@@ -213,6 +213,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
 // The pages may outlive this object's own part: their editors tell no one.
 MainWindow::~MainWindow() {
+    cancelConfigure();
     if (m_findBar) m_findBar->setEditor(nullptr);
     for (const auto& [page, editor] : m_editors) editor->view->setListener(nullptr);
     // The language servers stop with the window.
@@ -316,14 +317,7 @@ bool MainWindow::openProject(const QString& directory) {
     updateTitle();
     setUpBuild();
     if (m_language) {
-        // The servers of the project; the documents open already go to them.
-        m_language->setProject(path, buildDirectory());
-        m_diagnostics.clear();
-        updateProblems();
-        for (auto& [page, editor] : m_editors) {
-            editor->languageFile.clear();
-            languageOpened(*editor);
-        }
+        restartLanguages();
         // The servers the project needs and the computer lacks, told once a
         // session each: another project may need other ones.
         QStringList missing;
@@ -498,11 +492,30 @@ QString runTargetKey(const QString& project) {
     return QStringLiteral("runTarget/") + QString::fromLatin1(project.toUtf8().toHex());
 }
 
+// The setting naming the build profile of a project, by its directory.
+QString profileKey(const QString& project) {
+    return QStringLiteral("buildProfile/") + QString::fromLatin1(project.toUtf8().toHex());
+}
+
+// The build type of a profile's directory; `build` leaves it to the project.
+QString buildTypeOf(const QString& directory) {
+    if (directory == QLatin1String("build-debug")) return QStringLiteral("Debug");
+    if (directory == QLatin1String("build-release")) return QStringLiteral("Release");
+    return {};
+}
+
 } // namespace
 
 void MainWindow::createBuildBar() {
     QToolBar* bar = addToolBar(tr("Build"));
     bar->setObjectName(QStringLiteral("buildBar"));
+    m_profileBox = new QComboBox;
+    m_profileBox->addItem(tr("Default"), QStringLiteral("build"));
+    m_profileBox->addItem(tr("Debug"), QStringLiteral("build-debug"));
+    m_profileBox->addItem(tr("Release"), QStringLiteral("build-release"));
+    m_profileBox->setToolTip(tr("The build profile, each with its build directory"));
+    connect(m_profileBox, &QComboBox::activated, this, &MainWindow::chooseProfile);
+    bar->addWidget(m_profileBox);
     m_targetBox = new QComboBox;
     m_targetBox->setMinimumContentsLength(16);
     m_targetBox->setSizeAdjustPolicy(QComboBox::AdjustToContents);
@@ -575,20 +588,35 @@ void MainWindow::createBuildBar() {
 }
 
 QString MainWindow::buildDirectory() const {
-    return QDir(m_projectDirectory).filePath(QStringLiteral("build"));
+    return QDir(m_projectDirectory).filePath(m_profileBox->currentData().toString());
+}
+
+QString MainWindow::buildDirectoryName() const {
+    return m_profileBox->currentData().toString() + QLatin1Char('/');
+}
+
+void MainWindow::chooseProfile() {
+    QSettings().setValue(profileKey(m_projectDirectory), m_profileBox->currentData());
+    m_targets.clear();
+    m_targetBox->clear();
+    configure();
+}
+
+void MainWindow::cancelConfigure() {
+    if (!m_configuring) return;
+    disconnect(m_configuring, nullptr, this, nullptr);
+    m_configuring->kill();
+    m_configuring->deleteLater();
+    m_configuring = nullptr;
 }
 
 void MainWindow::setUpBuild() {
-    if (m_configuring) {
-        // The configuration of the project left: its end is of no interest.
-        disconnect(m_configuring, nullptr, this, nullptr);
-        m_configuring->kill();
-        m_configuring->deleteLater();
-        m_configuring = nullptr;
-    }
+    cancelConfigure();
     m_buildSystem = nullptr;
     m_targets.clear();
     m_targetBox->clear();
+    const int profile = m_profileBox->findData(QSettings().value(profileKey(m_projectDirectory)));
+    m_profileBox->setCurrentIndex(std::max(0, profile));
     // A project the build system plugin does not know has nothing to build;
     // without the plugin Build and Run say so when used.
     if (auto* buildSystem = m_plugins.plugin<BuildSystem>()) {
@@ -655,7 +683,8 @@ void MainWindow::fillBackendMenu() {
     if (m_buildSystem) {
         const QString configured = m_buildSystem->configuredBackend(buildDirectory());
         m_backendMenu->addSeparator();
-        QString state = configured.isEmpty() ? tr("build/ is not configured yet") : tr("build/ uses %1").arg(configured);
+        QString state = configured.isEmpty() ? tr("%1 is not configured yet").arg(buildDirectoryName())
+                                             : tr("%1 uses %2").arg(buildDirectoryName(), configured);
         if (!configured.isEmpty() && linkJobs() > 0 && !m_buildSystem->supportsLinkJobs(configured))
             state += tr(", which links as many at once as it compiles");
         m_backendMenu->addAction(state)->setEnabled(false);
@@ -669,8 +698,8 @@ void MainWindow::chooseBackend(const QString& backend) {
     if (configured.isEmpty() || configured == backend) return;
     // Switching rebuilds everything: the open project switches when asked.
     if (QMessageBox::question(this, tr("Build Tool"),
-                              tr("build/ of %1 uses %2. Configure it afresh for %3? Everything is built again.")
-                                  .arg(QFileInfo(m_projectDirectory).fileName(), configured, backend))
+                              tr("%1 of %2 uses %3. Configure it afresh for %4? Everything is built again.")
+                                  .arg(buildDirectoryName(), QFileInfo(m_projectDirectory).fileName(), configured, backend))
         == QMessageBox::Yes)
         configure(true);
 }
@@ -683,10 +712,11 @@ void MainWindow::configure(bool switchBackend) {
     const QString backend = configured.isEmpty() || switchBackend ? chosen : QString();
     QString done = tr("Configured %1").arg(QFileInfo(m_projectDirectory).fileName());
     if (!configured.isEmpty() && !chosen.isEmpty() && configured != chosen && !switchBackend)
-        done = tr("build/ uses %1, not %2: Build → Build Tool switches it").arg(configured, chosen);
+        done = tr("%1 uses %2, not %3: Build → Build Tool switches it").arg(buildDirectoryName(), configured, chosen);
     ConfigureOptions options;
     options.backend = backend;
     options.linkJobs = linkJobs();
+    options.buildType = buildTypeOf(m_profileBox->currentData().toString());
     const BuildCommand command = m_buildSystem->configureCommand(m_projectDirectory, buildDirectory(), options);
     auto* process = new QProcess(this);
     m_configuring = process;
@@ -699,6 +729,8 @@ void MainWindow::configure(bool switchBackend) {
         m_configuring = nullptr;
         if (project != m_projectDirectory) return;  // another project meanwhile
         updateBuildActions();
+        // Another profile: its compile_commands.json exists now.
+        if (m_language && m_languageBuildDirectory != buildDirectory()) restartLanguages();
         if (status != QProcess::NormalExit || exitCode != 0) {
             statusBar()->clearMessage();
             QMessageBox box(QMessageBox::Warning, tr("Configure"),
@@ -746,6 +778,7 @@ void MainWindow::updateBuildActions() {
     const bool running = m_runPanel && m_runPanel->isRunning();
     if (m_stopAction) m_stopAction->setEnabled(building || running);
     const bool idle = m_buildSystem && !m_configuring && !building;
+    m_profileBox->setEnabled(idle);
     m_configureAction->setEnabled(idle);
     m_buildAction->setEnabled(idle);
     m_runAction->setEnabled(idle && m_targetBox->count() > 0);
@@ -837,6 +870,17 @@ void MainWindow::setUpLanguages() {
     definition->setShortcut(QKeySequence(Qt::Key_F12));
     navigate->addAction(m_problemsDock->toggleViewAction());
     updateNavigationActions();
+}
+
+void MainWindow::restartLanguages() {
+    m_languageBuildDirectory = buildDirectory();
+    m_language->setProject(m_projectDirectory, m_languageBuildDirectory);
+    m_diagnostics.clear();
+    updateProblems();
+    for (auto& [page, editor] : m_editors) {
+        editor->languageFile.clear();
+        languageOpened(*editor);
+    }
 }
 
 NavigationHistory::Place MainWindow::placeOf(QWidget* page) const {

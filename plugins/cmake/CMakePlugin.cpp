@@ -90,6 +90,7 @@ public:
         // how each file is compiled.
         QStringList arguments{QStringLiteral("-S"), projectDir, QStringLiteral("-B"), buildDir,
                               QStringLiteral("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON")};
+        if (!options.buildType.isEmpty()) arguments << QStringLiteral("-DCMAKE_BUILD_TYPE=") + options.buildType;
         const QString configured = configuredBackend(buildDir);
         const QString wanted = backend.isEmpty() ? configured : backend;
         // Another generator than the cache's, or FetchContent's sub-builds

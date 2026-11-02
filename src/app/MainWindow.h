@@ -88,10 +88,14 @@ private:
     bool saveAll();
 
     // Building: the project's build system plugin (CMake), the build
-    // directory <project>/build, the executable targets to run.
+    // directory of the chosen profile, the executable targets to run.
     void createBuildBar();
+    // Another build profile for the project: configures its directory.
+    void chooseProfile();
     // Finds the build system of the opened project and configures it.
     void setUpBuild();
+    // A configuration in progress whose end is of no interest any more.
+    void cancelConfigure();
     // Configures the project in the background ("cmake -S . -B build"):
     // with the chosen build tool (setting "build/backend") when the build
     // directory is new or `switchBackend`, else with the one it has.
@@ -109,11 +113,17 @@ private:
     // a program still running in the panel is stopped first.
     void runProgram(const QString& program, const QString& name);
     void updateBuildActions();
+    // <project>/build, build-debug or build-release, by the chosen profile.
     QString buildDirectory() const;
+    // Its name, for messages: "build/".
+    QString buildDirectoryName() const;
 
     // Language servers (the language support plugin): the open project's,
     // told of the documents in the tabs.
     void setUpLanguages();
+    // The servers of the project and build directory; the documents open
+    // already go to them.
+    void restartLanguages();
     // Tells the language servers that the tab shows its file now.
     void languageOpened(Editor& editor);
     void languageClosed(Editor& editor);
@@ -153,6 +163,7 @@ private:
 
     BuildSystem* m_buildSystem = nullptr;
     QList<BuildTarget> m_targets;
+    QComboBox* m_profileBox = nullptr;
     QComboBox* m_targetBox = nullptr;
     QAction* m_configureAction = nullptr;
     QAction* m_buildAction = nullptr;
@@ -170,6 +181,7 @@ private:
 
     LanguageSupport* m_language = nullptr;
     std::unique_ptr<LanguageListener> m_languageListener;
+    QString m_languageBuildDirectory;  // the one the servers were given
     QHash<QString, QList<Diagnostic>> m_diagnostics;  // by file
     QSet<QString> m_reportedMissingServers;           // told once a session
     QDockWidget* m_problemsDock = nullptr;

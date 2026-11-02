@@ -32,6 +32,9 @@ struct ConfigureOptions {
     // compiling uses all jobs; 0: no limit of its own. Only build tools
     // that can (supportsLinkJobs()).
     int linkJobs = 0;
+    // "Debug", "Release"; empty leaves it to the project and to what the
+    // build directory has.
+    QString buildType;
 };
 
 // A target of a configured project.
@@ -81,7 +84,7 @@ public:
 
 } // namespace eudaimonia
 
-#define EUDAIMONIA_BUILDSYSTEM_IID "io.github.eudahub.eudaimonia.BuildSystem/2"
+#define EUDAIMONIA_BUILDSYSTEM_IID "io.github.eudahub.eudaimonia.BuildSystem/3"
 Q_DECLARE_INTERFACE(eudaimonia::BuildSystem, EUDAIMONIA_BUILDSYSTEM_IID)
 
 #endif // EUDAIMONIA_PLUGIN_BUILDSYSTEM_H
