@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "LspSession.h"
 
+#include "../common/ContentLengthMessages.h"
+
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -116,8 +118,7 @@ void LspSession::stop() {
 }
 
 QByteArray LspSession::frame(const QJsonObject& message) {
-    const QByteArray body = QJsonDocument(message).toJson(QJsonDocument::Compact);
-    return "Content-Length: " + QByteArray::number(body.size()) + "\r\n\r\n" + body;
+    return messages::frame(message);
 }
 
 void LspSession::send(const QJsonObject& message) {
@@ -125,26 +126,7 @@ void LspSession::send(const QJsonObject& message) {
 }
 
 QList<QJsonObject> LspSession::takeMessages(QByteArray& buffer) {
-    QList<QJsonObject> messages;
-    for (;;) {
-        const qsizetype headerEnd = buffer.indexOf("\r\n\r\n");
-        if (headerEnd < 0) break;
-        qsizetype length = -1;
-        for (const QByteArray& line : buffer.left(headerEnd).split('\n')) {
-            const QByteArray header = line.trimmed();
-            if (header.toLower().startsWith("content-length:")) length = header.mid(15).trimmed().toLongLong();
-        }
-        if (length < 0) {
-            buffer.remove(0, headerEnd + 4);  // a header without a length: skipped
-            continue;
-        }
-        if (buffer.size() < headerEnd + 4 + length) break;  // the body is not all here yet
-        const QByteArray body = buffer.mid(headerEnd + 4, length);
-        buffer.remove(0, headerEnd + 4 + length);
-        const QJsonDocument document = QJsonDocument::fromJson(body);
-        if (document.isObject()) messages << document.object();
-    }
-    return messages;
+    return messages::take(buffer);
 }
 
 void LspSession::readOutput() {

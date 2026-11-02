@@ -187,6 +187,15 @@ its plugins are in `plugins/`:
   (`"suffix=id"`) and `installHint`; one with a known name replaces that
   server, and `"program": ""` removes it.
 
+- `eudaimonia-dap` (`eudaimonia::Debugger`): debugging through the
+  [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/):
+  compiled programs with gdb 14 or later (`gdb -i dap`), and CMake's scripts
+  with CMake's own debugger (`cmake --debugger`, CMake 3.27 or later), which
+  also stops at a fatal error. Breakpoints kept between sessions, continuing,
+  stepping and pausing, the call stack, and scopes and variables with their
+  members (under CMake, also the values of lists). The IDE has no commands
+  for it yet.
+
 A feature whose plugin is missing reports an error that lists the searched
 directories; there are no built-in replacements. **Help → Plugins** shows the
 searched directories and what was found in them, and so does

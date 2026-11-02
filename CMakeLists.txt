@@ -51,6 +51,7 @@ FetchContent_MakeAvailable(siplasplas_plugins)
 add_subdirectory(api)
 add_subdirectory(plugins/cmake)
 add_subdirectory(plugins/lsp)
+add_subdirectory(plugins/dap)
 
 add_executable(eudaimonia
     src/app/main.cpp
