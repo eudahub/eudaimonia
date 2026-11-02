@@ -217,6 +217,22 @@ if(EUDAIMONIA_BUILD_TESTS)
     add_test(NAME lsp_plugin COMMAND test_lsp_plugin)
     set_tests_properties(lsp_plugin PROPERTIES TIMEOUT 60)
 
+    # The main window with the real plugins, driven by keys.
+    add_executable(test_main_window tests/test_main_window.cpp
+        src/app/BuildMonitor.cpp src/app/BuildPanel.cpp src/app/CompilerMessages.cpp src/app/MainWindow.cpp
+        src/app/NavigationHistory.cpp src/app/PluginManager.cpp src/app/RecentProjects.cpp src/app/RunPanel.cpp
+        src/app/Terminal.cpp)
+    target_include_directories(test_main_window PRIVATE src/app ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_main_window PRIVATE
+        EUDAIMONIA_VERSION="${PROJECT_VERSION}"
+        EUDAIMONIA_PLUGIN_DIR_FROM_BIN="${EUDAIMONIA_PLUGIN_DIR_FROM_BIN}"
+        FAKE_SERVER="${CMAKE_SOURCE_DIR}/tests/lsp/fake_server.py")
+    target_link_libraries(test_main_window PRIVATE
+        Qt6::Widgets Qt6::Test qt-extra siplasplas::plugin-api eudaimonia::plugin-api)
+    add_dependencies(test_main_window eudaimonia_build_info spp-editor spp-findbar eudaimonia-cmake eudaimonia-lsp)
+    add_test(NAME main_window COMMAND test_main_window)
+    set_tests_properties(main_window PROPERTIES TIMEOUT 60)
+
     # The CMake plugin on a small project configured and built by the test.
     add_executable(test_cmake_plugin tests/test_cmake_plugin.cpp)
     target_compile_definitions(test_cmake_plugin PRIVATE
