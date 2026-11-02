@@ -219,6 +219,8 @@ cmake --build build
 ./build/eudaimonia
 ```
 
+Without `-DCMAKE_BUILD_TYPE` this builds Release.
+
 To work on the plugins together with the IDE, without a tag for each change,
 build from local checkouts next to this repository. A `CMakeUserPresets.json`
 here, which Git ignores, holds a preset for that (CMake's version 3 preset

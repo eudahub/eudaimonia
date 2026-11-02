@@ -2,6 +2,13 @@
 cmake_minimum_required(VERSION 3.21)
 project(eudaimonia VERSION 0.1.0 LANGUAGES CXX)
 
+# Installs come from a plain `cmake -S . -B build`, so without a choice it
+# builds Release.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING
+        "Build type: Release, Debug, RelWithDebInfo or MinSizeRel" FORCE)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -233,6 +240,24 @@ if(EUDAIMONIA_BUILD_TESTS)
     add_dependencies(test_main_window eudaimonia_build_info spp-editor spp-findbar eudaimonia-cmake eudaimonia-lsp)
     add_test(NAME main_window COMMAND test_main_window)
     set_tests_properties(main_window PROPERTIES TIMEOUT 60)
+
+    # The debugger plugin on real debuggers, with programs of its own that
+    # have debug information whatever the build type.
+    add_executable(test_dap_program tests/dap/program.cpp)
+    add_executable(test_dap_loop tests/dap/loop.cpp)
+    foreach(program test_dap_program test_dap_loop)
+        target_compile_options(${program} PRIVATE -g -O0)
+    endforeach()
+    add_executable(test_dap_plugin tests/test_dap_plugin.cpp)
+    target_compile_definitions(test_dap_plugin PRIVATE
+        DAP_PLUGIN_FILE="$<TARGET_FILE:eudaimonia-dap>"
+        DAP_PROGRAM="$<TARGET_FILE:test_dap_program>"
+        DAP_LOOP="$<TARGET_FILE:test_dap_loop>"
+        DAP_PROGRAM_SOURCE="${CMAKE_SOURCE_DIR}/tests/dap/program.cpp")
+    target_link_libraries(test_dap_plugin PRIVATE eudaimonia::plugin-api Qt6::Core Qt6::Test)
+    add_dependencies(test_dap_plugin eudaimonia-dap test_dap_program test_dap_loop)
+    add_test(NAME dap_plugin COMMAND test_dap_plugin)
+    set_tests_properties(dap_plugin PROPERTIES TIMEOUT 120)
 
     # The CMake plugin on a small project configured and built by the test.
     add_executable(test_cmake_plugin tests/test_cmake_plugin.cpp)
