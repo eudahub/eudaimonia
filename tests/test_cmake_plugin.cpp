@@ -90,6 +90,27 @@ private slots:
         QVERIFY(!m_cmake->recognizes(empty.path()));
     }
 
+    void namesItsBuildDirectories() {
+        const QDir project(m_project.path());
+        QCOMPARE(m_cmake->buildDirectory(m_project.path(), {}), project.filePath(QStringLiteral("build")));
+        QCOMPARE(m_cmake->buildDirectory(m_project.path(), QStringLiteral("Debug")), project.filePath(QStringLiteral("build-debug")));
+        QCOMPARE(m_cmake->buildDirectory(m_project.path(), QStringLiteral("Release")), project.filePath(QStringLiteral("build-release")));
+        QVERIFY(m_cmake->canDebugConfigure());
+    }
+
+    // The threads asked for win over the environment; a rebuild cleans first.
+    void buildsWithTheOptionsAsked() {
+        qputenv("CMAKE_BUILD_PARALLEL_LEVEL", "7");
+        eudaimonia::BuildOptions options;
+        QCOMPARE(m_cmake->buildCommand(m_build, {}, options).arguments, QStringList({QStringLiteral("--build"), m_build}));
+        options.jobs = 3;
+        options.clean = true;
+        QCOMPARE(m_cmake->buildCommand(m_build, QStringLiteral("x"), options).arguments,
+                 QStringList({QStringLiteral("--build"), m_build, QStringLiteral("--clean-first"), QStringLiteral("--parallel"),
+                              QStringLiteral("3"), QStringLiteral("--target"), QStringLiteral("x")}));
+        qunsetenv("CMAKE_BUILD_PARALLEL_LEVEL");
+    }
+
     void noTargetsBeforeConfiguring() {
         QString error;
         QVERIFY(m_cmake->targets(m_build, &error).isEmpty());

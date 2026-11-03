@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # A language server for the tests: diagnostics for lines with "bad", a
-# definition at line 0, column 4, a request of its own to the client; every
+# definition at line 0, column 4, completions, a request of its own to the client; every
 # message it gets is written to the log named by its first argument.
 import json
 import sys
@@ -63,6 +63,19 @@ while True:
         send({"jsonrpc": "2.0", "id": message["id"],
               "result": [{"uri": params["textDocument"]["uri"],
                           "range": {"start": {"line": 0, "character": 4}, "end": {"line": 0, "character": 8}}}]})
+    elif method == "textDocument/completion":
+        line = params["position"]["line"]
+        items = [{"label": " alpha(int a)", "detail": "int", "filterText": "alpha", "sortText": "2", "kind": 3,
+                  "textEdit": {"newText": "alpha", "range": {"start": {"line": line, "character": 1},
+                                                             "end": {"line": line, "character": 3}}}},
+                 {"label": "•beta", "sortText": "1", "insertText": "beta2",
+                  "additionalTextEdits": [{"newText": "#include <b>\n",
+                                           "range": {"start": {"line": 0, "character": 0},
+                                                     "end": {"line": 0, "character": 0}}}]},
+                 {"label": "plain", "sortText": "3"}]
+        # Line 0: a list that is incomplete; others: the plain array.
+        result = {"isIncomplete": True, "items": items} if line == 0 else items
+        send({"jsonrpc": "2.0", "id": message["id"], "result": result})
     elif method == "shutdown":
         send({"jsonrpc": "2.0", "id": message["id"], "result": None})
     elif method == "exit":

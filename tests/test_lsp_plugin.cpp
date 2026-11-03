@@ -162,6 +162,50 @@ private slots:
         QVERIFY(none);
     }
 
+    // In the server's order, without what it marks labels with, the word's
+    // start and what it writes elsewhere told; text typed just now goes first.
+    void completes() {
+        const QString path = m_project.filePath("src/a.fake");
+        QList<Completion> found;
+        bool incomplete = false;
+        bool answered = false;
+        auto done = [&](const QList<Completion>& items, bool more) {
+            found = items;
+            incomplete = more;
+            answered = true;
+        };
+        m_lsp->complete(path, {1, 3}, done);
+        QTRY_VERIFY(answered);
+        QVERIFY(!incomplete);  // a plain array
+        QCOMPARE(found.size(), 3);
+        const Completion& beta = found.at(0);
+        QCOMPARE(beta.label, QStringLiteral("beta"));
+        QCOMPARE(beta.insertText, QStringLiteral("beta2"));
+        QVERIFY(!beta.hasStart);
+        QCOMPARE(beta.additionalEdits.size(), 1);
+        QCOMPARE(beta.additionalEdits.first().text, QStringLiteral("#include <b>\n"));
+        const Completion& alpha = found.at(1);
+        QCOMPARE(alpha.label, QStringLiteral("alpha(int a)"));
+        QCOMPARE(alpha.detail, QStringLiteral("int"));
+        QCOMPARE(alpha.filterText, QStringLiteral("alpha"));
+        QCOMPARE(alpha.insertText, QStringLiteral("alpha"));
+        QVERIFY(alpha.hasStart);
+        QCOMPARE(alpha.start.line, 1);
+        QCOMPARE(alpha.start.column, 1);
+        QCOMPARE(found.at(2).insertText, QStringLiteral("plain"));
+
+        answered = false;
+        m_lsp->complete(path, {0, 0}, done);
+        QTRY_VERIFY(answered);
+        QVERIFY(incomplete);
+
+        // No server for the file: an answer of nothing, at once.
+        answered = false;
+        m_lsp->complete(m_project.filePath("x.txt"), {0, 0}, done);
+        QVERIFY(answered);
+        QVERIFY(found.isEmpty());
+    }
+
     void savesClosesAndShutsDown() {
         const QString path = m_project.filePath("src/a.fake");
         m_lsp->changed(path, QStringLiteral("bad again\n"));

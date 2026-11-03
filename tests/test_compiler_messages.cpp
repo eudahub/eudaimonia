@@ -45,6 +45,28 @@ private slots:
         QTEST(message->kind, "kind");
     }
 
+    // rustc tells the kind on the line before the place.
+    void recognizesRustc_data() {
+        QTest::addColumn<QString>("line");
+        QTest::addColumn<QString>("previous");
+        QTest::addColumn<int>("column");
+        QTest::addColumn<Kind>("kind");
+        QTest::newRow("error") << " --> src/main.rs:2:18" << "error[E0308]: mismatched types" << 18 << Kind::Error;
+        QTest::newRow("warning") << "  --> src/main.rs:2:18" << "warning: unused variable: `x`" << 18 << Kind::Warning;
+        QTest::newRow("other place") << "  ::: src/main.rs:2:3" << "   |" << 3 << Kind::Note;
+    }
+
+    void recognizesRustc() {
+        QFETCH(QString, line);
+        QFETCH(QString, previous);
+        const auto message = parseCompilerMessage(line, previous);
+        QVERIFY(message);
+        QCOMPARE(message->file, QStringLiteral("src/main.rs"));
+        QCOMPARE(message->line, 2);
+        QTEST(message->column, "column");
+        QTEST(message->kind, "kind");
+    }
+
     void ignoresOtherLines_data() {
         QTest::addColumn<QString>("line");
         QTest::newRow("ninja") << "[3/10] Building CXX object CMakeFiles/x.dir/main.cpp.o";
@@ -53,6 +75,8 @@ private slots:
         QTest::newRow("source excerpt") << "   12 |     int x = y;";
         QTest::newRow("linker object") << "/usr/bin/ld: main.o: in function `main':";
         QTest::newRow("summary") << "Built in 1.2 s, finished at 14:05:12.";
+        QTest::newRow("rustc's message") << "error[E0308]: mismatched types";
+        QTest::newRow("rustc's excerpt") << "2 |     let x: i32 = \"a\";";
         QTest::newRow("empty") << "";
     }
 

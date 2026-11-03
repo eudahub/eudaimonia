@@ -86,6 +86,33 @@ private slots:
         QCOMPARE(BuildMonitor::treeResident(300, proc.path()), 0);
     }
 
+    // Two packages, the first with SMT: core numbers repeat across packages.
+    void countsPhysicalCores() {
+        QTemporaryDir root;
+        auto cpu = [&](int number, int package, int core) {
+            const QString topology = QStringLiteral("cpu%1/topology/").arg(number);
+            QDir(root.path()).mkpath(topology);
+            QFile packageFile(root.filePath(topology + QStringLiteral("physical_package_id")));
+            QVERIFY(packageFile.open(QIODevice::WriteOnly));
+            packageFile.write(QByteArray::number(package) + '\n');
+            QFile coreFile(root.filePath(topology + QStringLiteral("core_id")));
+            QVERIFY(coreFile.open(QIODevice::WriteOnly));
+            coreFile.write(QByteArray::number(core) + '\n');
+        };
+        cpu(0, 0, 0);
+        cpu(1, 0, 1);
+        cpu(2, 0, 0);
+        cpu(3, 0, 1);
+        cpu(4, 1, 0);
+        QDir(root.path()).mkpath(QStringLiteral("cpufreq"));    // not a processor
+        QDir(root.path()).mkpath(QStringLiteral("cpu5"));       // offline: no topology
+        QCOMPARE(BuildMonitor::physicalCores(root.path()), 3);
+        // Unreadable: the logical processors, not nothing.
+        QTemporaryDir empty;
+        QVERIFY(BuildMonitor::physicalCores(empty.path()) > 0);
+        QVERIFY(BuildMonitor::physicalCores() > 0);
+    }
+
     void measuresARealTree() {
         QProcess shell;
         shell.start(QStringLiteral("sh"), {QStringLiteral("-c"), QStringLiteral("sleep 5 & sleep 5 & wait")});

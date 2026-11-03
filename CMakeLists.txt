@@ -262,6 +262,15 @@ if(EUDAIMONIA_BUILD_TESTS)
     add_test(NAME dap_plugin COMMAND test_dap_plugin)
     set_tests_properties(dap_plugin PROPERTIES TIMEOUT 120)
 
+    # The Cargo plugin on small projects of the test, when cargo is installed.
+    add_executable(test_cargo_plugin tests/test_cargo_plugin.cpp)
+    target_compile_definitions(test_cargo_plugin PRIVATE
+        CARGO_PLUGIN_FILE="$<TARGET_FILE:eudaimonia-cargo>")
+    target_link_libraries(test_cargo_plugin PRIVATE eudaimonia::plugin-api Qt6::Core Qt6::Test)
+    add_dependencies(test_cargo_plugin eudaimonia-cargo)
+    add_test(NAME cargo_plugin COMMAND test_cargo_plugin)
+    set_tests_properties(cargo_plugin PROPERTIES TIMEOUT 60)
+
     # The CMake plugin on a small project configured and built by the test.
     add_executable(test_cmake_plugin tests/test_cmake_plugin.cpp)
     target_compile_definitions(test_cmake_plugin PRIVATE

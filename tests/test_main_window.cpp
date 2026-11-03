@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The main window with the real plugins, driven by keys (offscreen): closing
-// tabs, Select Word, build profiles, debugging (with gdb and CMake, when
-// installed), Back and Forward, and Go to Definition with the language server
-// written for the tests (tests/lsp/fake_server.py, needs python3).
+// tabs, Select Word, build profiles, Rebuild, debugging (with gdb and CMake,
+// when installed), Rust projects (with cargo, when installed), Back and Forward,
+// and Go to Definition with the language server written for the tests
+// (tests/lsp/fake_server.py, needs python3).
+#include "BuildPanel.h"
 #include "DebugPanel.h"
 #include "MainWindow.h"
+#include "RunPanel.h"
 
 #include <mrutabwidget.h>
 
@@ -13,6 +16,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QComboBox>
+#include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -20,13 +24,16 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QProcess>
+#include <QScrollBar>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QTabBar>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTextBlock>
 #include <QTimer>
 #include <QTreeWidget>
 
@@ -347,6 +354,138 @@ private slots:
         resume->trigger();
         QTRY_VERIFY_WITH_TIMEOUT(configure->isEnabled(), 15000);
         QVERIFY(w.window.findChild<eudaimonia::DebugPanel*>()->output().contains(QLatin1String("said")));
+    }
+
+    // Everything anew, with the threads chosen; the title says how many.
+    void rebuildsTheProject() {
+        if (QStandardPaths::findExecutable(QStringLiteral("cmake")).isEmpty()) QSKIP("cmake is not installed");
+        QTemporaryDir project;
+        QFile lists(project.filePath(QStringLiteral("CMakeLists.txt")));
+        QVERIFY(lists.open(QIODevice::WriteOnly));
+        lists.write("cmake_minimum_required(VERSION 3.21)\nproject(p NONE)\n"
+                    "add_custom_target(step ALL COMMAND ${CMAKE_COMMAND} -E echo stepping)\n");
+        lists.close();
+        Window w;
+        QVERIFY(w.active());
+        QVERIFY(w.window.openProject(project.path()));
+        QAction* rebuild = nullptr;
+        for (auto* action : w.window.findChildren<QAction*>())
+            if (action->text() == QLatin1String("Re&build Project")) rebuild = action;
+        QVERIFY(rebuild);
+        QTRY_VERIFY_WITH_TIMEOUT(rebuild->isEnabled(), 20000);
+        auto* panel = w.window.findChild<eudaimonia::BuildPanel*>();
+        QVERIFY(panel);
+        QSettings().setValue(QStringLiteral("build/threads"), 3);
+        rebuild->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(rebuild->isEnabled(), 20000);
+        QSettings().remove(QStringLiteral("build/threads"));
+        const QString output = panel->output();
+        QVERIFY2(output.section(QLatin1Char('\n'), 0, 0).contains(QLatin1String("--clean-first --parallel 3")), qPrintable(output));
+        QVERIFY(output.contains(QLatin1String("stepping")));
+        QVERIFY(output.contains(QLatin1String("Built in")));
+        bool titled = false;
+        for (auto* label : panel->findChildren<QLabel*>()) titled |= label->text().contains(QLatin1String("3 threads"));
+        QVERIFY(titled);
+    }
+
+    // Cargo's targets, a compiler message clicked, the program run in the
+    // project's directory, and debugged with Rust's pretty printers.
+    void buildsRunsAndDebugsRust() {
+        for (const char* program : {"cargo", "gdb"})
+            if (QStandardPaths::findExecutable(QString::fromLatin1(program)).isEmpty()) QSKIP("cargo or gdb is not installed");
+        QTemporaryDir project;
+        auto put = [&](const QString& name, const QByteArray& text) {
+            QDir(project.path()).mkpath(QFileInfo(name).path());
+            QFile out(project.filePath(name));
+            if (out.open(QIODevice::WriteOnly)) out.write(text);
+            return out.fileName();
+        };
+        put(QStringLiteral("Cargo.toml"), "[package]\nname = \"sample\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
+        put(QStringLiteral("examples/ex.rs"), "fn main() {}\n");
+        const QString source = put(QStringLiteral("src/main.rs"), "fn main() {\n    let x: i32 = \"a\";\n}\n");
+        Window w;
+        QVERIFY(w.active());
+        QVERIFY(w.window.openProject(project.path()));
+        QComboBox* target = nullptr;
+        for (auto* box : w.window.findChildren<QComboBox*>())
+            if (box->toolTip().startsWith(QLatin1String("The program Run"))) target = box;
+        QVERIFY(target);
+        QTRY_COMPARE_WITH_TIMEOUT(target->count(), 2, 20000);
+        target->setCurrentIndex(target->findText(QStringLiteral("sample")));
+        QVERIFY(!debugConfigureAction(w.window)->isEnabled());
+        QAction* build = actionWithKey(w.window, QKeySequence(Qt::CTRL | Qt::Key_F9));
+        QAction* run = actionWithKey(w.window, QKeySequence(Qt::SHIFT | Qt::Key_F10));
+        QAction* debug = actionWithKey(w.window, QKeySequence(Qt::SHIFT | Qt::Key_F9));
+        QAction* resume = actionWithKey(w.window, QKeySequence(Qt::Key_F9));
+
+        build->trigger();
+        auto* buildPanel = w.window.findChild<eudaimonia::BuildPanel*>();
+        QTRY_VERIFY_WITH_TIMEOUT(build->isEnabled(), 30000);
+        QVERIFY(buildPanel->output().contains(QLatin1String("1 error(s)")));
+        auto* log = buildPanel->findChild<QPlainTextEdit*>();
+        QTextBlock block = log->document()->begin();
+        while (block.isValid() && !block.text().contains(QLatin1String("-->"))) block = block.next();
+        QVERIFY(block.isValid());
+        QTextCursor place(block);
+        place.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, 6);
+        log->verticalScrollBar()->setValue(0);
+        QCoreApplication::processEvents();
+        QTest::mouseClick(log->viewport(), Qt::LeftButton, {}, log->cursorRect(place).center());
+        QTRY_COMPARE(w.tab(), QStringLiteral("main.rs"));
+        QCOMPARE(w.position(), QStringLiteral("Line 2, Column 18"));
+        QTest::keyClick(w.area(), Qt::Key_F4, Qt::ControlModifier);
+        QTRY_COMPARE(w.tabs->count(), 0);
+
+        put(QStringLiteral("src/main.rs"),
+            "fn add(a: i32, b: i32) -> i32 {\n"
+            "    a + b\n"
+            "}\n"
+            "fn main() {\n"
+            "    println!(\"in {}\", std::env::current_dir().unwrap().display());\n"
+            "    let v = vec![1, 2, 3];\n"
+            "    let r = add(v[0], 2);\n"
+            "    std::process::exit(r);\n"
+            "}\n");
+        const QString directory = QFileInfo(project.path()).canonicalFilePath();
+        auto* runPanel = w.window.findChild<eudaimonia::RunPanel*>();
+        run->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(runPanel->output().contains(QLatin1String("exited with code 3")), 30000);
+        QVERIFY2(runPanel->output().contains(QLatin1String("in ") + directory), qPrintable(runPanel->output()));
+
+        QVERIFY(w.window.openFile(source));
+        BreakpointMargin margin;
+        QVERIFY(margin.find(w, project.path(), source));
+        margin.toggle(1);  // a + b
+        QTest::keyClick(w.area(), Qt::Key_F9, Qt::ShiftModifier);
+        QTRY_VERIFY_WITH_TIMEOUT(resume->isEnabled(), 30000);
+        auto* panel = w.window.findChild<eudaimonia::DebugPanel*>();
+        auto* frames = panel->findChild<QListWidget*>();
+        auto* variables = panel->findChild<QTreeWidget*>();
+        QTRY_VERIFY(frames->count() >= 2);
+        QVERIFY(frames->item(0)->text().contains(QLatin1String("add")));
+        QCOMPARE(w.position(), QStringLiteral("Line 2, Column 1"));
+        QVERIFY(panel->output().contains(QLatin1String("in ") + directory));
+        QTRY_VERIFY(variables->topLevelItemCount() > 0 && variables->topLevelItem(0)->childCount() == 2);
+        QCOMPARE(variables->topLevelItem(0)->child(0)->text(1), QStringLiteral("1"));
+        // A Vec has a value only with the printers, which rustc's sysroot may lack.
+        QProcess rustc;
+        rustc.start(QStringLiteral("rustc"), {QStringLiteral("--print"), QStringLiteral("sysroot")});
+        rustc.waitForFinished(5000);
+        const QString sysroot = QString::fromLocal8Bit(rustc.readAllStandardOutput()).trimmed();
+        if (QFileInfo(sysroot + QStringLiteral("/lib/rustlib/etc")).isDir()) {
+            frames->setCurrentRow(1);
+            QString value;
+            QTRY_VERIFY([&] {
+                for (int scope = 0; scope < variables->topLevelItemCount(); ++scope)
+                    for (int i = 0; i < variables->topLevelItem(scope)->childCount(); ++i)
+                        if (variables->topLevelItem(scope)->child(i)->text(0) == QLatin1String("v"))
+                            value = variables->topLevelItem(scope)->child(i)->text(1);
+                return !value.isEmpty();
+            }());
+            QVERIFY2(value.contains(QLatin1String("size=3")), qPrintable(value));
+        }
+        resume->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(debug->isEnabled(), 10000);
     }
 
     void backAndForwardAcrossFiles() {
