@@ -50,7 +50,7 @@ set(SPP_BUILD_FINDBAR ON)
 set(SPP_BUILD_ARCHIVE OFF)
 FetchContent_Declare(siplasplas_plugins
     GIT_REPOSITORY https://github.com/siplasplas/siplasplas-plugins.git
-    GIT_TAG v0.9.0
+    GIT_TAG v0.10.0
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(siplasplas_plugins)
 
@@ -68,6 +68,8 @@ add_executable(eudaimonia
     src/app/BuildPanel.h
     src/app/CompilerMessages.cpp
     src/app/CompilerMessages.h
+    src/app/DebugPanel.cpp
+    src/app/DebugPanel.h
     src/app/MainWindow.cpp
     src/app/MainWindow.h
     src/app/NavigationHistory.cpp
@@ -85,7 +87,7 @@ target_compile_definitions(eudaimonia PRIVATE
     EUDAIMONIA_VERSION="${PROJECT_VERSION}"
     EUDAIMONIA_PLUGIN_DIR_FROM_BIN="${EUDAIMONIA_PLUGIN_DIR_FROM_BIN}")
 target_link_libraries(eudaimonia PRIVATE Qt6::Widgets qt-extra siplasplas::plugin-api eudaimonia::plugin-api)
-add_dependencies(eudaimonia eudaimonia-cmake)
+add_dependencies(eudaimonia eudaimonia-cmake eudaimonia-lsp eudaimonia-dap)
 
 # Help → About names the commit built and its time, and those of the
 # components built in, so that it is plain which versions a build uses:
@@ -227,8 +229,8 @@ if(EUDAIMONIA_BUILD_TESTS)
 
     # The main window with the real plugins, driven by keys.
     add_executable(test_main_window tests/test_main_window.cpp
-        src/app/BuildMonitor.cpp src/app/BuildPanel.cpp src/app/CompilerMessages.cpp src/app/MainWindow.cpp
-        src/app/NavigationHistory.cpp src/app/PluginManager.cpp src/app/RecentProjects.cpp src/app/RunPanel.cpp
+        src/app/BuildMonitor.cpp src/app/BuildPanel.cpp src/app/CompilerMessages.cpp src/app/DebugPanel.cpp
+        src/app/MainWindow.cpp src/app/NavigationHistory.cpp src/app/PluginManager.cpp src/app/RecentProjects.cpp src/app/RunPanel.cpp
         src/app/Terminal.cpp)
     target_include_directories(test_main_window PRIVATE src/app ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_main_window PRIVATE
@@ -237,7 +239,7 @@ if(EUDAIMONIA_BUILD_TESTS)
         FAKE_SERVER="${CMAKE_SOURCE_DIR}/tests/lsp/fake_server.py")
     target_link_libraries(test_main_window PRIVATE
         Qt6::Widgets Qt6::Test qt-extra siplasplas::plugin-api eudaimonia::plugin-api)
-    add_dependencies(test_main_window eudaimonia_build_info spp-editor spp-findbar eudaimonia-cmake eudaimonia-lsp)
+    add_dependencies(test_main_window eudaimonia_build_info spp-editor spp-findbar eudaimonia-cmake eudaimonia-lsp eudaimonia-dap)
     add_test(NAME main_window COMMAND test_main_window)
     set_tests_properties(main_window PROPERTIES TIMEOUT 60)
 

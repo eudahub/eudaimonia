@@ -88,9 +88,17 @@ public:
         } else {
             // The program named at once: its symbols are known when the
             // breakpoints come, which then need not wait.
-            m_session->startOverStdio(QStringLiteral("gdb"),
-                                      {QStringLiteral("-i"), QStringLiteral("dap"), QStringLiteral("-q"), request.program},
-                                      request.workingDirectory);
+            const QStringList gdb{QStringLiteral("gdb"), QStringLiteral("-i"), QStringLiteral("dap"), QStringLiteral("-q"),
+                                  request.program};
+            // C's stdio holds back what a program writes into a pipe; stdbuf
+            // (when installed), which the program inherits from gdb, makes it
+            // come line by line, as one steps through it.
+            if (QStandardPaths::findExecutable(QStringLiteral("stdbuf")).isEmpty())
+                m_session->startOverStdio(gdb.first(), gdb.mid(1), request.workingDirectory);
+            else
+                m_session->startOverStdio(QStringLiteral("stdbuf"),
+                                          QStringList{QStringLiteral("-oL"), QStringLiteral("-eL")} + gdb,
+                                          request.workingDirectory);
         }
         // An adapter that says nothing (gdb, given a file it cannot load)
         // does not keep the session for ever.

@@ -2,6 +2,7 @@
 #include "MainWindow.h"
 
 #include "BuildPanel.h"
+#include "DebugPanel.h"
 #include "RunPanel.h"
 #include "Terminal.h"
 #include "build_info.h"
@@ -53,7 +54,47 @@ QString canonicalPath(const QString& path) {
     return canonical.isEmpty() ? QDir::cleanPath(info.absoluteFilePath()) : canonical;
 }
 
+// Files the debuggers can stop in: C and C++ with gdb, CMake with CMake.
+bool canHaveBreakpoints(const QString& file) {
+    static const QSet<QString> suffixes{QStringLiteral("c"),   QStringLiteral("cc"),  QStringLiteral("cpp"),
+                                        QStringLiteral("cxx"), QStringLiteral("c++"), QStringLiteral("h"),
+                                        QStringLiteral("hh"),  QStringLiteral("hpp"), QStringLiteral("hxx"),
+                                        QStringLiteral("inl"), QStringLiteral("ipp"), QStringLiteral("tpp"),
+                                        QStringLiteral("cmake")};
+    const QFileInfo info(file);
+    return info.fileName() == QLatin1String("CMakeLists.txt") || suffixes.contains(info.suffix().toLower());
+}
+
 } // namespace
+
+// What the debugger does.
+struct MainWindow::DebugListener : DebuggerListener {
+    MainWindow* window = nullptr;
+    void stopped(int threadId, const QString& reason) override {
+        window->m_debugStopped = true;
+        window->m_debugDock->show();
+        window->m_debugDock->raise();
+        window->updateBuildActions();
+        window->m_debugPanel->stopped(threadId, reason);
+    }
+    void continued() override {
+        window->m_debugStopped = false;
+        window->clearExecution();
+        window->m_debugPanel->continued();
+        window->updateBuildActions();
+    }
+    void output(const QString& text) override { window->m_debugPanel->append(text); }
+    void breakpointChanged(const DebugBreakpoint& breakpoint) override { window->breakpointMoved(breakpoint); }
+    void ended(int exitCode, const QString& error) override {
+        window->m_debugStopped = false;
+        window->clearExecution();
+        window->m_debugPanel->sessionEnded(exitCode, error);
+        // The directory has what CMake configured, when it got that far.
+        if (window->m_debuggingConfigure) window->loadTargets();
+        window->m_debuggingConfigure = false;
+        window->updateBuildActions();
+    }
+};
 
 // What the language servers report.
 struct MainWindow::LanguageListener : LanguageSupportListener {
@@ -71,10 +112,14 @@ struct MainWindow::Editor : spp::EditorViewListener {
     spp::EditorView* view = nullptr;
     // The file the language servers know the tab by; empty when none does.
     QString languageFile;
+    // The file its breakpoints are kept for.
+    QString breakpointFile;
 
     void modificationChanged(bool) override { window->updateTabText(page); }
+    void breakpointsChanged(const QList<int>& lines) override { window->setFileBreakpoints(view->filePath(), lines); }
     void filePathChanged(const QString& path) override {
         window->updateTabText(page);
+        window->showBreakpoints(*this);
         // Saved under another name: the servers learn of the new file.
         if (path != languageFile) {
             window->languageClosed(*this);
@@ -204,6 +249,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     createMenus();
     createBuildBar();
+    createDebugging();
     setUpLanguages();
     updateRecentProjects();
     updateTitle();
@@ -214,6 +260,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 // The pages may outlive this object's own part: their editors tell no one.
 MainWindow::~MainWindow() {
     cancelConfigure();
+    // The debugger and the program stop with the window.
+    if (m_debugger) {
+        m_debugger->setListener(nullptr);
+        m_debugger->stop();
+    }
     if (m_findBar) m_findBar->setEditor(nullptr);
     for (const auto& [page, editor] : m_editors) editor->view->setListener(nullptr);
     // The language servers stop with the window.
@@ -315,6 +366,8 @@ bool MainWindow::openProject(const QString& directory) {
         statusBar()->showMessage(tr("Cannot save the recent projects: %1").arg(error), 5000);
     updateRecentProjects();
     updateTitle();
+    stopDebugging();
+    loadBreakpoints();
     setUpBuild();
     if (m_language) {
         restartLanguages();
@@ -369,6 +422,7 @@ bool MainWindow::openFile(const QString& filePath) {
     view->setListener(editor.get());
     Editor& opened = *editor;
     m_editors.emplace(page.get(), std::move(editor));
+    showBreakpoints(opened);
     languageOpened(opened);
     QWidget* added = page.release();
     const int index = m_tabs->addTab(added, QFileInfo(path).fileName());
@@ -508,6 +562,7 @@ QString buildTypeOf(const QString& directory) {
 
 void MainWindow::createBuildBar() {
     QToolBar* bar = addToolBar(tr("Build"));
+    m_buildBar = bar;
     bar->setObjectName(QStringLiteral("buildBar"));
     m_profileBox = new QComboBox;
     m_profileBox->setObjectName(QStringLiteral("buildProfile"));
@@ -537,10 +592,11 @@ void MainWindow::createBuildBar() {
     m_runAction->setToolTip(tr("Build the chosen target and run it (Shift+F10)"));
     m_stopAction = build->addAction(tr("&Stop"), this, [this] {
         if (m_buildPanel->isRunning()) m_buildPanel->stop();
+        else if (m_debugger && m_debugger->isRunning()) m_debugger->stop();
         else m_runPanel->stop();
     });
     m_stopAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F2));
-    m_stopAction->setToolTip(tr("Stop the build, or the program running (Ctrl+F2)"));
+    m_stopAction->setToolTip(tr("Stop the build, the debugging, or the program running (Ctrl+F2)"));
     m_runInTerminal = build->addAction(tr("Run in &Terminal"));
     m_runInTerminal->setCheckable(true);
     m_runInTerminal->setChecked(QSettings().value(QStringLiteral("run/inTerminal"), false).toBool());
@@ -706,43 +762,54 @@ void MainWindow::chooseBackend(const QString& backend) {
 }
 
 void MainWindow::configure(bool switchBackend) {
-    if (!m_buildSystem || m_configuring) return;
+    configureDirectory(m_profileBox->currentData().toString(), switchBackend, [this](bool) {
+        // Another profile: its compile_commands.json exists now.
+        if (m_language && m_languageBuildDirectory != buildDirectory()) restartLanguages();
+        loadTargets();
+    });
+}
+
+BuildCommand MainWindow::configureCommand(const QString& directoryName, bool switchBackend, QString* done) {
+    const QString directory = QDir(m_projectDirectory).filePath(directoryName);
     // A configured build directory keeps its build tool unless asked to switch.
-    const QString configured = m_buildSystem->configuredBackend(buildDirectory());
+    const QString configured = m_buildSystem->configuredBackend(directory);
     const QString chosen = chosenBackend(m_buildSystem);
-    const QString backend = configured.isEmpty() || switchBackend ? chosen : QString();
-    QString done = tr("Configured %1").arg(QFileInfo(m_projectDirectory).fileName());
+    *done = tr("Configured %1").arg(QFileInfo(m_projectDirectory).fileName());
     if (!configured.isEmpty() && !chosen.isEmpty() && configured != chosen && !switchBackend)
-        done = tr("%1 uses %2, not %3: Build → Build Tool switches it").arg(buildDirectoryName(), configured, chosen);
+        *done = tr("%1/ uses %2, not %3: Build → Build Tool switches it").arg(directoryName, configured, chosen);
     ConfigureOptions options;
-    options.backend = backend;
+    options.backend = configured.isEmpty() || switchBackend ? chosen : QString();
     options.linkJobs = linkJobs();
-    options.buildType = buildTypeOf(m_profileBox->currentData().toString());
-    const BuildCommand command = m_buildSystem->configureCommand(m_projectDirectory, buildDirectory(), options);
+    options.buildType = buildTypeOf(directoryName);
+    return m_buildSystem->configureCommand(m_projectDirectory, directory, options);
+}
+
+void MainWindow::configureDirectory(const QString& directoryName, bool switchBackend, std::function<void(bool)> then) {
+    if (!m_buildSystem || m_configuring) return;
+    QString done;
+    const BuildCommand command = configureCommand(directoryName, switchBackend, &done);
     auto* process = new QProcess(this);
     m_configuring = process;
     process->setProcessChannelMode(QProcess::MergedChannels);
     process->setWorkingDirectory(command.workingDirectory);
     const QString project = m_projectDirectory;
     statusBar()->showMessage(tr("Configuring %1 with %2...").arg(QFileInfo(project).fileName(), m_buildSystem->name()));
-    connect(process, &QProcess::finished, this, [this, process, project, done](int exitCode, QProcess::ExitStatus status) {
+    connect(process, &QProcess::finished, this, [this, process, project, done, then](int exitCode, QProcess::ExitStatus status) {
         process->deleteLater();
         m_configuring = nullptr;
         if (project != m_projectDirectory) return;  // another project meanwhile
         updateBuildActions();
-        // Another profile: its compile_commands.json exists now.
-        if (m_language && m_languageBuildDirectory != buildDirectory()) restartLanguages();
         if (status != QProcess::NormalExit || exitCode != 0) {
             statusBar()->clearMessage();
             QMessageBox box(QMessageBox::Warning, tr("Configure"),
                             tr("Configuring %1 failed.").arg(QFileInfo(project).fileName()), QMessageBox::Ok, this);
             box.setDetailedText(QString::fromLocal8Bit(process->readAll()));
             box.exec();
-            loadTargets();
+            then(false);
             return;
         }
         statusBar()->showMessage(done, 10000);
-        loadTargets();
+        then(true);
     });
     connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart) return;
@@ -777,13 +844,25 @@ void MainWindow::loadTargets() {
 void MainWindow::updateBuildActions() {
     const bool building = m_buildPanel && m_buildPanel->isRunning();
     const bool running = m_runPanel && m_runPanel->isRunning();
-    if (m_stopAction) m_stopAction->setEnabled(building || running);
+    const bool debugging = m_debugger && m_debugger->isRunning();
+    if (m_stopAction) m_stopAction->setEnabled(building || running || debugging);
     const bool idle = m_buildSystem && !m_configuring && !building;
-    m_profileBox->setEnabled(idle);
-    m_configureAction->setEnabled(idle);
+    // CMake being debugged is configuring.
+    m_profileBox->setEnabled(idle && !debugging);
+    m_configureAction->setEnabled(idle && !debugging);
     m_buildAction->setEnabled(idle);
     m_runAction->setEnabled(idle && m_targetBox->count() > 0);
     m_targetBox->setEnabled(m_targetBox->count() > 0);
+    if (!m_debugAction) return;  // the debugging's actions come later
+    // Without the plugin they say so when used.
+    m_debugAction->setEnabled(idle && !debugging && m_targetBox->count() > 0);
+    m_debugConfigureAction->setEnabled(idle && !debugging);
+    m_resumeAction->setEnabled(debugging && m_debugStopped);
+    m_stepOverAction->setEnabled(debugging && m_debugStopped);
+    m_stepInAction->setEnabled(debugging && m_debugStopped);
+    m_stepOutAction->setEnabled(debugging && m_debugStopped);
+    m_pauseAction->setEnabled(debugging && !m_debugStopped);
+    m_stopDebugAction->setEnabled(debugging);
 }
 
 void MainWindow::buildAndRun(bool run) {
@@ -811,8 +890,220 @@ void MainWindow::buildFinished(bool success) {
     loadTargets();
     const QString program = m_runAfterBuild;
     m_runAfterBuild.clear();
-    if (!success || program.isEmpty()) return;
+    const QString debugged = m_debugAfterBuild;
+    m_debugAfterBuild.clear();
+    if (!success) return;
+    if (!debugged.isEmpty()) {
+        // In its build directory, as Run runs it.
+        startDebugging({DebugRequest::Kind::Program, debugged, {}, QFileInfo(debugged).absolutePath()}, m_runName);
+        return;
+    }
+    if (program.isEmpty()) return;
     runProgram(program, m_runName);
+}
+
+void MainWindow::createDebugging() {
+    m_debugger = m_plugins.plugin<Debugger>();
+    m_debugPanel = new DebugPanel;
+    m_debugPanel->setDebugger(m_debugger);
+    connect(m_debugPanel, &DebugPanel::frameChosen, this, &MainWindow::showExecution);
+    if (m_debugger) {
+        m_debugListener = std::make_unique<DebugListener>();
+        m_debugListener->window = this;
+        m_debugger->setListener(m_debugListener.get());
+    }
+
+    QMenu* debug = menuBar()->insertMenu(menuBar()->actions().last(), new QMenu(tr("&Debug"), this))->menu();
+    auto running = [this](void (Debugger::*act)()) {
+        return [this, act] {
+            if (m_debugger && m_debugger->isRunning()) (m_debugger->*act)();
+        };
+    };
+    m_debugAction = debug->addAction(QIcon(QStringLiteral(":/icons/ladybug.svg")), tr("&Debug"), this, &MainWindow::debugTarget);
+    m_debugAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F9));
+    m_debugAction->setToolTip(tr("Build the chosen target in build-debug and debug it (Shift+F9)"));
+    m_debugConfigureAction = debug->addAction(tr("Debug CMake &Configure"), this, &MainWindow::debugConfigure);
+    m_debugConfigureAction->setToolTip(tr("Configure the project in CMake's debugger: breakpoints in CMakeLists.txt"));
+    debug->addSeparator();
+    m_resumeAction = debug->addAction(tr("&Resume"), this, running(&Debugger::resume));
+    m_resumeAction->setShortcut(QKeySequence(Qt::Key_F9));
+    m_pauseAction = debug->addAction(tr("&Pause"), this, running(&Debugger::pause));
+    m_stepOverAction = debug->addAction(tr("Step &Over"), this, running(&Debugger::stepOver));
+    m_stepOverAction->setShortcut(QKeySequence(Qt::Key_F8));
+    m_stepInAction = debug->addAction(tr("Step &In"), this, running(&Debugger::stepIn));
+    m_stepInAction->setShortcut(QKeySequence(Qt::Key_F7));
+    m_stepOutAction = debug->addAction(tr("Step O&ut"), this, running(&Debugger::stepOut));
+    m_stepOutAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F8));
+    m_stopDebugAction = debug->addAction(tr("&Stop Debugging"), this, running(&Debugger::stop));
+    for (QAction* action : {m_resumeAction, m_pauseAction, m_stepOverAction, m_stepInAction, m_stepOutAction, m_stopDebugAction})
+        action->setToolTip(action->shortcut().isEmpty()
+                               ? action->text().remove(QLatin1Char('&'))
+                               : QStringLiteral("%1 (%2)").arg(action->text().remove(QLatin1Char('&')),
+                                                               action->shortcut().toString()));
+    m_debugPanel->setButtons({m_resumeAction, m_pauseAction, m_stepOverAction, m_stepInAction, m_stepOutAction, m_stopDebugAction});
+    m_buildBar->insertAction(m_stopAction, m_debugAction);
+
+    m_debugDock = new QDockWidget(tr("Debug"), this);
+    m_debugDock->setObjectName(QStringLiteral("debugDock"));
+    m_debugDock->setWidget(m_debugPanel);
+    addDockWidget(Qt::BottomDockWidgetArea, m_debugDock);
+    tabifyDockWidget(m_buildDock, m_debugDock);
+    m_debugDock->hide();
+    debug->addSeparator();
+    debug->addAction(m_debugDock->toggleViewAction());
+    updateBuildActions();
+}
+
+bool MainWindow::canDebug(DebugRequest::Kind kind) {
+    if (!m_debugger) {
+        QMessageBox::critical(this, tr("Debugger Plugin Missing"),
+                              m_plugins.missingMessage(QStringLiteral(EUDAIMONIA_DEBUGGER_IID), tr("Debugging")));
+        return false;
+    }
+    const QString reason = m_debugger->unavailableReason(kind);
+    if (!reason.isEmpty()) QMessageBox::warning(this, tr("Debugging"), reason);
+    return reason.isEmpty();
+}
+
+void MainWindow::debugTarget() {
+    if (!m_buildSystem || m_buildPanel->isRunning() || !canDebug(DebugRequest::Kind::Program) || !saveAll()) return;
+    const QString name = m_targetBox->currentText();
+    if (name.isEmpty()) return;
+    const QString directoryName = QStringLiteral("build-debug");
+    configureDirectory(directoryName, false, [this, name, directoryName](bool configured) {
+        if (m_buildSystem && directoryName == m_profileBox->currentData().toString()) loadTargets();
+        if (!configured || !m_buildSystem) return;
+        const QString directory = QDir(m_projectDirectory).filePath(directoryName);
+        QString error;
+        QString program;
+        for (const BuildTarget& target : m_buildSystem->targets(directory, &error))
+            if (target.name == name) program = target.executable;
+        if (program.isEmpty()) {
+            statusBar()->showMessage(error.isEmpty() ? tr("%1 is not a target of %2/").arg(name, directoryName) : error, 10000);
+            return;
+        }
+        m_debugAfterBuild = program;
+        m_runName = name;
+        m_buildDock->show();
+        m_buildPanel->start(m_buildSystem->buildCommand(directory, name), tr("Build %1 for debugging").arg(name));
+    });
+}
+
+void MainWindow::debugConfigure() {
+    if (!m_buildSystem || m_configuring || !canDebug(DebugRequest::Kind::CMakeConfigure) || !saveAll()) return;
+    QString done;
+    const BuildCommand command = configureCommand(m_profileBox->currentData().toString(), false, &done);
+    m_debuggingConfigure = true;
+    startDebugging({DebugRequest::Kind::CMakeConfigure, command.program, command.arguments, command.workingDirectory},
+                   tr("Configure %1").arg(QFileInfo(m_projectDirectory).fileName()));
+}
+
+void MainWindow::startDebugging(const DebugRequest& request, const QString& name) {
+    m_debugStopped = false;
+    m_debugPanel->sessionStarted(name);
+    m_debugDock->show();
+    m_debugDock->raise();
+    m_debugger->start(request);  // a failure comes through the listener
+    updateBuildActions();
+}
+
+void MainWindow::stopDebugging() {
+    m_debugAfterBuild.clear();
+    if (m_debugger && m_debugger->isRunning()) m_debugger->stop();
+}
+
+namespace {
+
+// The setting holding the breakpoints of a project.
+QString breakpointsKey(const QString& project) {
+    return QStringLiteral("breakpoints/") + QString::fromLatin1(project.toUtf8().toHex());
+}
+
+QList<int> fromOne(const QList<int>& fromZero) {
+    QList<int> lines;
+    lines.reserve(fromZero.size());
+    for (const int line : fromZero) lines << line + 1;
+    return lines;
+}
+
+} // namespace
+
+void MainWindow::loadBreakpoints() {
+    if (!m_debugger) return;
+    for (auto it = m_breakpoints.cbegin(); it != m_breakpoints.cend(); ++it) m_debugger->setBreakpoints(it.key(), {});
+    m_breakpoints.clear();
+    const QVariantMap saved = QSettings().value(breakpointsKey(m_projectDirectory)).toMap();
+    for (auto it = saved.cbegin(); it != saved.cend(); ++it) {
+        QList<int> lines;
+        for (const QVariant& line : it.value().toList()) lines << line.toInt();
+        m_breakpoints.insert(it.key(), lines);
+        m_debugger->setBreakpoints(it.key(), fromOne(lines));
+    }
+    for (const auto& [page, editor] : m_editors) editor->view->setBreakpoints(m_breakpoints.value(editor->view->filePath()));
+}
+
+void MainWindow::saveBreakpoints() const {
+    if (m_projectDirectory.isEmpty()) return;
+    QVariantMap saved;
+    for (auto it = m_breakpoints.cbegin(); it != m_breakpoints.cend(); ++it) {
+        QVariantList lines;
+        for (const int line : it.value()) lines << line;
+        saved.insert(it.key(), lines);
+    }
+    QSettings().setValue(breakpointsKey(m_projectDirectory), saved);
+}
+
+void MainWindow::setFileBreakpoints(const QString& file, const QList<int>& lines) {
+    if (lines.isEmpty()) m_breakpoints.remove(file);
+    else m_breakpoints.insert(file, lines);
+    saveBreakpoints();
+    if (m_debugger) m_debugger->setBreakpoints(file, fromOne(lines));
+}
+
+void MainWindow::showBreakpoints(Editor& editor) {
+    const QString file = editor.view->filePath();
+    // Saved under another name: they stay with the text.
+    if (!editor.breakpointFile.isEmpty() && editor.breakpointFile != file) {
+        const QList<int> lines = m_breakpoints.value(editor.breakpointFile);
+        setFileBreakpoints(editor.breakpointFile, {});
+        setFileBreakpoints(file, lines);
+    }
+    editor.breakpointFile = file;
+    editor.view->setBreakpointMargin(m_debugger && canHaveBreakpoints(file));
+    editor.view->setBreakpoints(m_breakpoints.value(file));
+}
+
+// The debugger took a breakpoint on another line, e.g. the next one with code:
+// the margin shows where it is. The debugger needs not be told.
+void MainWindow::breakpointMoved(const DebugBreakpoint& breakpoint) {
+    if (breakpoint.line <= 0 || breakpoint.line == breakpoint.requestedLine) return;
+    const auto found = m_breakpoints.find(breakpoint.file);
+    if (found == m_breakpoints.end() || !found->contains(breakpoint.requestedLine - 1)) return;
+    QList<int> lines = found.value();
+    lines.removeOne(breakpoint.requestedLine - 1);
+    if (!lines.contains(breakpoint.line - 1)) lines << breakpoint.line - 1;
+    std::sort(lines.begin(), lines.end());
+    m_breakpoints.insert(breakpoint.file, lines);
+    saveBreakpoints();
+    if (spp::EditorView* view = viewOf(m_tabs->findTab(breakpoint.file))) view->setBreakpoints(lines);
+}
+
+void MainWindow::showExecution(const QString& file, int line) {
+    clearExecution();
+    if (file.isEmpty()) return;
+    openLocation(file, line, 0);
+    spp::EditorView* view = viewOf(m_tabs->currentWidget());
+    if (!view || view->filePath() != canonicalPath(file)) return;  // it could not be opened
+    // Stopped in it: whatever the kind of file, the line shows.
+    view->setBreakpointMargin(true);
+    view->setExecutionLine(line - 1);
+    m_executionFile = view->filePath();
+}
+
+void MainWindow::clearExecution() {
+    if (m_executionFile.isEmpty()) return;
+    if (spp::EditorView* view = viewOf(m_tabs->findTab(m_executionFile))) view->setExecutionLine(-1);
+    m_executionFile.clear();
 }
 
 void MainWindow::runProgram(const QString& program, const QString& name) {
@@ -1126,9 +1417,11 @@ void MainWindow::saveState() const {
 
 void MainWindow::closeEvent(QCloseEvent* event) {
     // A running build is stopped with the window (BuildPanel's destructor).
-    if ((m_buildPanel->isRunning() || m_runPanel->isRunning())
+    const bool debugging = m_debugger && m_debugger->isRunning();
+    if ((m_buildPanel->isRunning() || m_runPanel->isRunning() || debugging)
         && QMessageBox::question(this, tr("Still Running"),
                                  m_buildPanel->isRunning() ? tr("A build is running. Stop it and quit?")
+                                 : debugging               ? tr("A program is being debugged. Stop it and quit?")
                                                            : tr("The program is running. Stop it and quit?"))
                != QMessageBox::Yes) {
         event->ignore();

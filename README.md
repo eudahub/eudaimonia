@@ -137,6 +137,23 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   take much memory, run together — with Ninja only (a job pool:
   `CMAKE_JOB_POOLS`, `CMAKE_JOB_POOL_LINK`); make's `-j` counts every job
   alike. "As many as compiling" removes only that pool.
+- **Debugging** (the debugger plugin; gdb 14 or later, for CMake 3.27 or
+  later): C, C++ and CMake files have a column beside the line numbers where
+  a click sets or removes a **breakpoint**. Breakpoints stay on their code
+  through edits and are remembered for the project. **Debug** (ladybug,
+  Shift+F9) saves the modified files, configures and builds the chosen target
+  in `build-debug` whatever the profile, since breakpoints need debug
+  information, and starts it under gdb in the **Debug panel**, which has the
+  call stack (a click shows that frame and its variables), the variables,
+  whose members are asked for when opened, and what the program writes, line
+  by line (through `stdbuf`, when installed); there is no standard input yet,
+  and what is written last without a line break does not get through gdb.
+  **Resume** (F9), **Step Over** (F8), **Step In** (F7), **Step Out**
+  (Shift+F8), **Pause** and **Stop Debugging** (or Stop, Ctrl+F2) are in the
+  Debug menu and on the panel. Where it stopped shows in the editor with an
+  arrow and a blue line. **Debug CMake Configure** configures the chosen
+  profile's directory in CMake's own debugger, stopping at breakpoints in
+  `CMakeLists.txt` and at errors, with the values of variables and lists.
 - The window's size, position and the width of the tree are restored at the
   next start, from `~/.config/eudahub/eudaimonia.conf`.
 - **Help → About** names the commit built and its time (with `+changes`
@@ -198,8 +215,7 @@ its plugins are in `plugins/`:
   with CMake's own debugger (`cmake --debugger`, CMake 3.27 or later), which
   also stops at a fatal error. Breakpoints kept between sessions, continuing,
   stepping and pausing, the call stack, and scopes and variables with their
-  members (under CMake, also the values of lists). The IDE has no commands
-  for it yet.
+  members (under CMake, also the values of lists).
 
 A feature whose plugin is missing reports an error that lists the searched
 directories; there are no built-in replacements. **Help → Plugins** shows the

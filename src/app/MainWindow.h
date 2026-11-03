@@ -6,6 +6,7 @@
 #include "RecentProjects.h"
 
 #include <eudaimonia/plugin/BuildSystem.h>
+#include <eudaimonia/plugin/Debugger.h>
 #include <eudaimonia/plugin/LanguageSupport.h>
 
 #include <QMainWindow>
@@ -14,6 +15,7 @@
 #include <QHash>
 #include <QSet>
 
+#include <functional>
 #include <memory>
 #include <unordered_map>
 
@@ -28,6 +30,7 @@ class QListWidget;
 class QMenu;
 class QSplitter;
 class QStackedWidget;
+class QToolBar;
 class QTreeView;
 
 namespace spp {
@@ -39,6 +42,7 @@ class FindBar;
 namespace eudaimonia {
 
 class BuildPanel;
+class DebugPanel;
 class RunPanel;
 
 // The project directory as a tree on the left, open files in MRU tabs on the
@@ -62,6 +66,7 @@ protected:
 private:
     struct Editor;
     struct LanguageListener;
+    struct DebugListener;
 
     void createMenus();
     void chooseProject();
@@ -96,10 +101,16 @@ private:
     void setUpBuild();
     // A configuration in progress whose end is of no interest any more.
     void cancelConfigure();
-    // Configures the project in the background ("cmake -S . -B build"):
-    // with the chosen build tool (setting "build/backend") when the build
-    // directory is new or `switchBackend`, else with the one it has.
+    // Configures the chosen profile's directory ("cmake -S . -B build") in
+    // the background, then reads its targets.
     void configure(bool switchBackend = false);
+    // Configures a build directory of the project, then tells whether it
+    // went well.
+    void configureDirectory(const QString& directoryName, bool switchBackend, std::function<void(bool)> then);
+    // The command for it: with the chosen build tool (setting "build/backend")
+    // when the directory is new or `switchBackend`, else with the one it has;
+    // `done` is what to say when it worked.
+    BuildCommand configureCommand(const QString& directoryName, bool switchBackend, QString* done);
     // Build → Build Tool: the build system's default or one of its tools.
     void fillBackendMenu();
     void chooseBackend(const QString& backend);
@@ -117,6 +128,29 @@ private:
     QString buildDirectory() const;
     // Its name, for messages: "build/".
     QString buildDirectoryName() const;
+
+    // Debugging (the debugger plugin), with breakpoints kept for each project
+    // and shown in the tabs of their files.
+    void createDebugging();
+    // True, or false after telling the user why it cannot be debugged.
+    bool canDebug(DebugRequest::Kind kind);
+    // Builds the chosen target in build-debug and debugs the program; that
+    // directory whatever the profile, as breakpoints need debug information.
+    void debugTarget();
+    // Debugs CMake configuring the chosen profile's directory.
+    void debugConfigure();
+    void startDebugging(const DebugRequest& request, const QString& name);
+    void stopDebugging();
+    void loadBreakpoints();
+    void saveBreakpoints() const;
+    // The breakpoints of a file, from the margin of its tab.
+    void setFileBreakpoints(const QString& file, const QList<int>& lines);
+    // The tab's margin and breakpoints for its file (opened, or renamed).
+    void showBreakpoints(Editor& editor);
+    void breakpointMoved(const DebugBreakpoint& breakpoint);
+    // Shows the file at the line (from 1) as where the debugger stopped.
+    void showExecution(const QString& file, int line);
+    void clearExecution();
 
     // Language servers (the language support plugin): the open project's,
     // told of the documents in the tabs.
@@ -178,6 +212,25 @@ private:
     // The program to run once the one running in the panel has stopped.
     QString m_pendingProgram;
     QString m_pendingName;
+
+    QToolBar* m_buildBar = nullptr;
+    Debugger* m_debugger = nullptr;
+    std::unique_ptr<DebugListener> m_debugListener;
+    DebugPanel* m_debugPanel = nullptr;
+    QDockWidget* m_debugDock = nullptr;
+    QAction* m_debugAction = nullptr;
+    QAction* m_debugConfigureAction = nullptr;
+    QAction* m_resumeAction = nullptr;
+    QAction* m_pauseAction = nullptr;
+    QAction* m_stepOverAction = nullptr;
+    QAction* m_stepInAction = nullptr;
+    QAction* m_stepOutAction = nullptr;
+    QAction* m_stopDebugAction = nullptr;
+    bool m_debugStopped = false;       // stopped in the debugger: stepping can go on
+    bool m_debuggingConfigure = false;
+    QString m_debugAfterBuild;         // the program to debug when the build succeeds
+    QHash<QString, QList<int>> m_breakpoints;  // lines from 0, by file
+    QString m_executionFile;           // where the debugger's line shows
 
     LanguageSupport* m_language = nullptr;
     std::unique_ptr<LanguageListener> m_languageListener;
