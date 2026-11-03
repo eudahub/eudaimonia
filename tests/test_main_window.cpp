@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The main window with the real plugins, driven by keys (offscreen): closing
-// tabs, Select Word, build profiles, Back and Forward, and Go to Definition
-// with the language server written for the tests (tests/lsp/fake_server.py,
-// needs python3).
+// tabs, Select Word, build profiles, debugging (with gdb and CMake, when
+// installed), Back and Forward, and Go to Definition with the language server
+// written for the tests (tests/lsp/fake_server.py, needs python3).
+#include "DebugPanel.h"
 #include "MainWindow.h"
 
 #include <mrutabwidget.h>
 
 #include <QAbstractButton>
 #include <QAbstractScrollArea>
+#include <QAction>
 #include <QApplication>
 #include <QComboBox>
 #include <QFile>
@@ -16,13 +18,17 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QListWidget>
 #include <QMessageBox>
+#include <QProcess>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QTabBar>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
+#include <QTreeWidget>
 
 #include <memory>
 
@@ -50,6 +56,54 @@ struct Window {
         return {};
     }
     QString tab() const { return tabs->tabText(tabs->currentIndex()); }
+};
+
+QAction* actionWithKey(QWidget& window, const QKeySequence& key) {
+    for (auto* action : window.findChildren<QAction*>())
+        if (action->shortcut() == key) return action;
+    return nullptr;
+}
+
+QAction* debugConfigureAction(QWidget& window) {
+    for (auto* action : window.findChildren<QAction*>())
+        if (action->text() == QLatin1String("Debug CMake &Configure")) return action;
+    return nullptr;
+}
+
+// The breakpoint column of the current tab, found by clicking in it as a user
+// does and looking at what the window keeps for the project.
+struct BreakpointMargin {
+    QWidget* rail = nullptr;
+    QString project;
+    QString file;
+    int x = -1;
+    int lineHeight = 0;
+
+    QVariantList lines() const {
+        const QString key = QStringLiteral("breakpoints/") + QString::fromLatin1(project.toUtf8().toHex());
+        return QSettings().value(key).toMap().value(file).toList();
+    }
+    void click(int xAt, int y) { QTest::mouseClick(rail, Qt::LeftButton, Qt::NoModifier, QPoint(xAt, y)); }
+    bool find(Window& w, const QString& projectDirectory, const QString& path) {
+        project = QFileInfo(projectDirectory).canonicalFilePath();
+        file = QFileInfo(path).canonicalFilePath();
+        for (auto* child : w.tabs->currentWidget()->findChildren<QWidget*>())
+            if (QLatin1String(child->metaObject()->className()) == QLatin1String("qce::LeftRail")) rail = child;
+        if (!rail || !QTest::qWaitFor([this] { return rail->width() > 0; }, 5000)) return false;
+        for (int at = 0; at < rail->width() && x < 0; ++at) {
+            click(at, 3);
+            if (!lines().isEmpty()) x = at + 1;
+        }
+        if (x < 0) return false;
+        click(x, 3);
+        for (int y = 3; y < 100 && !lineHeight; ++y) {
+            click(x, y);
+            if (lines().first().toInt() == 1) lineHeight = y;
+            click(x, y);
+        }
+        return lineHeight > 0 && lines().isEmpty();
+    }
+    void toggle(int line) { click(x, lineHeight * line + 2); }
 };
 
 // Answers the message box the next action brings up.
@@ -185,6 +239,114 @@ private slots:
         QVERIFY(w.active());
         QVERIFY(w.window.openProject(project.path()));
         QVERIFY(!w.window.findChild<QComboBox*>(QStringLiteral("buildProfile"))->isEnabled());
+    }
+
+    // Breakpoints set in the margin, Debug building in build-debug, the keys,
+    // the panel, and no process left when the window closes during a stop.
+    void debugsAProgram() {
+        for (const char* program : {"cmake", "c++", "gdb"})
+            if (QStandardPaths::findExecutable(QString::fromLatin1(program)).isEmpty()) QSKIP("cmake, c++ or gdb is not installed");
+        QTemporaryDir project;
+        auto put = [&](const QString& name, const QByteArray& text) {
+            QFile out(project.filePath(name));
+            if (out.open(QIODevice::WriteOnly)) out.write(text);
+            return out.fileName();
+        };
+        put(QStringLiteral("CMakeLists.txt"),
+            "cmake_minimum_required(VERSION 3.21)\nproject(p CXX)\nadd_executable(eud_debugged main.cpp)\n");
+        const QString source = put(QStringLiteral("main.cpp"),
+                                   "#include <cstdio>\n"
+                                   "int add(int a, int b) {\n"
+                                   "    return a + b;\n"
+                                   "}\n"
+                                   "int main() {\n"
+                                   "    std::puts(\"hello\");\n"
+                                   "    int result = add(2, 3);\n"
+                                   "    return result;\n"
+                                   "}\n");
+        auto window = std::make_unique<Window>();
+        Window& w = *window;
+        QVERIFY(w.active());
+        QAction* debug = actionWithKey(w.window, QKeySequence(Qt::SHIFT | Qt::Key_F9));
+        QAction* resume = actionWithKey(w.window, QKeySequence(Qt::Key_F9));
+        QVERIFY(debug && resume);
+        QVERIFY(w.window.openProject(project.path()));
+        QTRY_VERIFY_WITH_TIMEOUT(debug->isEnabled(), 20000);
+        QVERIFY(!resume->isEnabled());
+        QVERIFY(w.window.openFile(source));
+        BreakpointMargin margin;
+        QVERIFY(margin.find(w, project.path(), source));
+        margin.toggle(2);  // return a + b;
+        QCOMPARE(margin.lines().size(), 1);
+        QCOMPARE(margin.lines().first().toInt(), 2);
+
+        QTest::keyClick(w.area(), Qt::Key_F9, Qt::ShiftModifier);
+        QTRY_VERIFY_WITH_TIMEOUT(resume->isEnabled(), 30000);
+        QVERIFY(QFile::exists(project.filePath(QStringLiteral("build-debug/eud_debugged"))));
+        auto* panel = w.window.findChild<eudaimonia::DebugPanel*>();
+        QVERIFY(panel);
+        auto* frames = panel->findChild<QListWidget*>();
+        auto* variables = panel->findChild<QTreeWidget*>();
+        QTRY_VERIFY(frames->count() == 2);
+        QVERIFY(frames->item(0)->text().startsWith(QLatin1String("add")));
+        QCOMPARE(w.tab(), QStringLiteral("main.cpp"));
+        QCOMPARE(w.position(), QStringLiteral("Line 3, Column 1"));
+        QTRY_VERIFY(variables->topLevelItemCount() > 0 && variables->topLevelItem(0)->childCount() == 2);
+        QCOMPARE(variables->topLevelItem(0)->child(0)->text(0), QStringLiteral("a"));
+        QCOMPARE(variables->topLevelItem(0)->child(0)->text(1), QStringLiteral("2"));
+        QVERIFY(panel->output().contains(QLatin1String("hello")));
+
+        // Another frame shows its place.
+        frames->setCurrentRow(1);
+        QTRY_COMPARE(w.position(), QStringLiteral("Line 7, Column 1"));
+        // Over, then out, to main.
+        QTest::keyClick(w.area(), Qt::Key_F8);
+        QTRY_COMPARE(w.position(), QStringLiteral("Line 4, Column 1"));
+        QTest::keyClick(w.area(), Qt::Key_F8, Qt::ShiftModifier);
+        QTRY_VERIFY(resume->isEnabled() && frames->count() == 1 && frames->item(0)->text().startsWith(QLatin1String("main")));
+        // On to the end.
+        QTest::keyClick(w.area(), Qt::Key_F9);
+        QTRY_VERIFY_WITH_TIMEOUT(debug->isEnabled(), 10000);
+        QVERIFY(!resume->isEnabled());
+
+        QTest::keyClick(w.area(), Qt::Key_F9, Qt::ShiftModifier);
+        QTRY_VERIFY_WITH_TIMEOUT(resume->isEnabled(), 30000);
+        window.reset();
+        QTRY_VERIFY_WITH_TIMEOUT(QProcess::execute(QStringLiteral("pgrep"), {QStringLiteral("-x"), QStringLiteral("eud_debugged")}) != 0, 8000);
+    }
+
+    // A breakpoint kept from the window before stops CMake configuring.
+    void debugsCMake() {
+        if (QStandardPaths::findExecutable(QStringLiteral("cmake")).isEmpty()) QSKIP("cmake is not installed");
+        QTemporaryDir project;
+        QFile lists(project.filePath(QStringLiteral("CMakeLists.txt")));
+        QVERIFY(lists.open(QIODevice::WriteOnly));
+        lists.write("cmake_minimum_required(VERSION 3.21)\nproject(p NONE)\nset(ITEMS a b)\nmessage(STATUS \"said\")\n");
+        lists.close();
+        {
+            Window w;
+            QVERIFY(w.active());
+            QVERIFY(w.window.openProject(project.path()));
+            QVERIFY(w.window.openFile(lists.fileName()));
+            BreakpointMargin margin;
+            QVERIFY(margin.find(w, project.path(), lists.fileName()));
+            margin.toggle(3);
+            QCOMPARE(margin.lines().size(), 1);
+        }
+        Window w;
+        QVERIFY(w.active());
+        QVERIFY(w.window.openProject(project.path()));
+        QAction* configure = debugConfigureAction(w.window);
+        QAction* resume = actionWithKey(w.window, QKeySequence(Qt::Key_F9));
+        QVERIFY(configure && resume);
+        QTRY_VERIFY_WITH_TIMEOUT(configure->isEnabled(), 20000);
+        configure->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(resume->isEnabled(), 15000);
+        QTRY_COMPARE(w.position(), QStringLiteral("Line 4, Column 1"));
+        QCOMPARE(w.tab(), QStringLiteral("CMakeLists.txt"));
+        resume->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(configure->isEnabled(), 15000);
+        QVERIFY(w.window.findChild<eudaimonia::DebugPanel*>()->output().contains(QLatin1String("said")));
     }
 
     void backAndForwardAcrossFiles() {
