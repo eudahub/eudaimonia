@@ -6,6 +6,9 @@
 #include <QHash>
 #include <QList>
 #include <QObject>
+#include <QRegularExpression>
+#include <QSet>
+#include <QThread>
 
 #include <algorithm>
 
@@ -88,6 +91,21 @@ qint64 BuildMonitor::treeResident(qint64 pid, const QString& procRoot) {
         pending << children.value(process);
     }
     return pages * pageSize;
+}
+
+int BuildMonitor::physicalCores(const QString& cpuRoot) {
+    // A core is known by its package and its number in the package.
+    QSet<QByteArray> cores;
+    const QDir cpus(cpuRoot);
+    const QRegularExpression cpuName(QStringLiteral("^cpu[0-9]+$"));
+    for (const QString& name : cpus.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+        if (!cpuName.match(name).hasMatch()) continue;
+        const QString topology = cpus.filePath(name + QStringLiteral("/topology/"));
+        const QByteArray core = readFile(topology + QStringLiteral("core_id")).trimmed();
+        if (core.isEmpty()) continue;  // an offline processor
+        cores.insert(readFile(topology + QStringLiteral("physical_package_id")).trimmed() + '/' + core);
+    }
+    return cores.isEmpty() ? QThread::idealThreadCount() : int(cores.size());
 }
 
 QString BuildMonitor::formatBytes(qint64 bytes) {

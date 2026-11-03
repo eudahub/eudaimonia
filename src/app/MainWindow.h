@@ -114,6 +114,14 @@ private:
     // Build → Build Tool: the build system's default or one of its tools.
     void fillBackendMenu();
     void chooseBackend(const QString& backend);
+    // Build → Compile Threads: logical processors, physical cores or a number.
+    void fillThreadsMenu();
+    // Builds the whole project anew, for its time and memory.
+    void rebuild();
+    // Options of a build by the chosen threads.
+    BuildOptions buildOptions(bool clean = false) const;
+    // "12 threads", for the title of a build.
+    QString threadsText() const;
     // Reads the targets of the configured project into the target list.
     void loadTargets();
     // Builds the chosen target in the build panel, and with `run` starts the
@@ -208,6 +216,8 @@ private:
     QAction* m_buildAction = nullptr;
     QAction* m_runAction = nullptr;
     QAction* m_stopAction = nullptr;
+    QAction* m_rebuildAction = nullptr;
+    QMenu* m_threadsMenu = nullptr;
     QMenu* m_backendMenu = nullptr;
     QDockWidget* m_buildDock = nullptr;
     BuildPanel* m_buildPanel = nullptr;

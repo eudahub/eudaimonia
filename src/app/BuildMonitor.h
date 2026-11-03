@@ -42,6 +42,11 @@ public:
     // (a build's compilers and linkers); 0 when it is gone.
     static qint64 treeResident(qint64 pid, const QString& procRoot = QStringLiteral("/proc"));
 
+    // The computer's physical cores: its logical processors without those
+    // sharing a core (SMT), from sysfs; `cpuRoot` is /sys/devices/system/cpu
+    // but for tests. The logical processors when that cannot be read.
+    static int physicalCores(const QString& cpuRoot = QStringLiteral("/sys/devices/system/cpu"));
+
     // "1.5 GiB", "230 MiB".
     static QString formatBytes(qint64 bytes);
 };

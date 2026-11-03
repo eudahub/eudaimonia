@@ -166,12 +166,16 @@ public:
         return result;
     }
 
-    BuildCommand buildCommand(const QString& buildDir, const QString& target) const override
+    BuildCommand buildCommand(const QString& buildDir, const QString& target, const BuildOptions& options) const override
     {
         QStringList arguments{QStringLiteral("--build"), buildDir};
-        // As many jobs as logical processors: "--parallel" alone would leave
-        // make without a limit. CMAKE_BUILD_PARALLEL_LEVEL, when set, decides.
-        if (qEnvironmentVariableIsEmpty("CMAKE_BUILD_PARALLEL_LEVEL"))
+        if (options.clean) arguments << QStringLiteral("--clean-first");
+        // As many jobs as asked for, else as logical processors: "--parallel"
+        // alone would leave make without a limit. Not asked for,
+        // CMAKE_BUILD_PARALLEL_LEVEL, when set, decides.
+        if (options.jobs > 0)
+            arguments << QStringLiteral("--parallel") << QString::number(options.jobs);
+        else if (qEnvironmentVariableIsEmpty("CMAKE_BUILD_PARALLEL_LEVEL"))
             arguments << QStringLiteral("--parallel") << QString::number(QThread::idealThreadCount());
         if (!target.isEmpty()) arguments << QStringLiteral("--target") << target;
         return {QStringLiteral("cmake"), arguments, buildDir};

@@ -207,7 +207,8 @@ void BuildPanel::end(int exitCode, bool crashed) {
         summary = tr("Build stopped %1 after %2, at %3.").arg(m_stopReason, duration(took), finishedAt);
     else
         summary = tr("Build failed (exit code %1) after %2, at %3.").arg(exitCode).arg(duration(took), finishedAt);
-    summary += tr(" The build took at most %1 of memory.").arg(BuildMonitor::formatBytes(m_peak));
+    // Looked at four times a second: a shorter build was never seen.
+    if (m_peak > 0) summary += tr(" The build took at most %1 of memory.").arg(BuildMonitor::formatBytes(m_peak));
     int errors = 0;
     int warnings = 0;
     for (QTextBlock block = m_output->document()->begin(); block.isValid(); block = block.next()) {

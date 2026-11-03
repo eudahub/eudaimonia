@@ -37,6 +37,15 @@ struct ConfigureOptions {
     QString buildType;
 };
 
+// How the IDE wants a project built.
+struct BuildOptions {
+    // Jobs at once; 0: the build system's choice (for CMake as many as
+    // logical processors, unless CMAKE_BUILD_PARALLEL_LEVEL is set).
+    int jobs = 0;
+    // What was built goes first: everything is built anew.
+    bool clean = false;
+};
+
 // A target of a configured project.
 struct BuildTarget {
     QString name;
@@ -79,12 +88,13 @@ public:
     virtual QList<BuildTarget> targets(const QString& buildDir, QString* error) const = 0;
 
     // The command building `target`, or everything when it is empty.
-    virtual BuildCommand buildCommand(const QString& buildDir, const QString& target) const = 0;
+    virtual BuildCommand buildCommand(const QString& buildDir, const QString& target,
+                                      const BuildOptions& options = {}) const = 0;
 };
 
 } // namespace eudaimonia
 
-#define EUDAIMONIA_BUILDSYSTEM_IID "io.github.eudahub.eudaimonia.BuildSystem/3"
+#define EUDAIMONIA_BUILDSYSTEM_IID "io.github.eudahub.eudaimonia.BuildSystem/4"
 Q_DECLARE_INTERFACE(eudaimonia::BuildSystem, EUDAIMONIA_BUILDSYSTEM_IID)
 
 #endif // EUDAIMONIA_PLUGIN_BUILDSYSTEM_H

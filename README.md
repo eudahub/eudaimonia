@@ -90,8 +90,8 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   list on the toolbar holds the project's executable targets; the one chosen
   is remembered for the project. **Build** (hammer, Ctrl+F9) saves the
   modified files and builds the chosen target (`cmake --build build
-  --parallel <N> --target <name>`, N being the number of logical processors,
-  unless `CMAKE_BUILD_PARALLEL_LEVEL` is set; everything when there is no
+  --parallel <N> --target <name>`, N being the compile threads chosen, by
+  default the logical processors unless `CMAKE_BUILD_PARALLEL_LEVEL` is set; everything when there is no
   target), **Run** (Shift+F10) builds it and, when the build succeeded,
   starts the program in its build directory, in the **Run panel**: its
   output (errors in red), line by line as in a terminal (through `stdbuf`,
@@ -137,6 +137,13 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   built again. A `build/` left half switched (e.g. by `cmake --fresh` with
   another generator, which fails on such sub-builds) is mended by
   configuring. The menu shows the tool `build/` uses.
+- **Build → Rebuild Project** builds the whole project anew (`cmake --build
+  <build> --clean-first`), to compare times and memory: the Build panel says
+  how long it took, the most memory it needed (the memory of all its processes
+  together, looked at four times a second) and with how many threads.
+  **Build → Compile Threads** chooses those for every build: the logical
+  processors (the default), the physical cores (read from sysfs), 1, or
+  **Other Number...**; a choice overrides `CMAKE_BUILD_PARALLEL_LEVEL`.
 - **Links at once** (in the same menu: 1, 2 — the default —, 4, or as many
   as compiling) lets compiling use every processor while fewer links, which
   take much memory, run together — with Ninja only (a job pool:

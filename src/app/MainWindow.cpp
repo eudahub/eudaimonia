@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "MainWindow.h"
 
+#include "BuildMonitor.h"
 #include "BuildPanel.h"
 #include "DebugPanel.h"
 #include "RunPanel.h"
@@ -25,6 +26,7 @@
 #include <QFileInfo>
 #include <QFileSystemModel>
 #include <QHeaderView>
+#include <QInputDialog>
 #include <QKeySequence>
 #include <QLabel>
 #include <QListWidget>
@@ -38,6 +40,7 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QThread>
 #include <QToolBar>
 #include <QTreeView>
 #include <QVBoxLayout>
@@ -592,6 +595,8 @@ void MainWindow::createBuildBar() {
                                    [this] { buildAndRun(true); });
     m_runAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F10));
     m_runAction->setToolTip(tr("Build the chosen target and run it (Shift+F10)"));
+    m_rebuildAction = build->addAction(tr("Re&build Project"), this, &MainWindow::rebuild);
+    m_rebuildAction->setToolTip(tr("Build the whole project anew, to see its time and memory"));
     m_stopAction = build->addAction(tr("&Stop"), this, [this] {
         if (m_buildPanel->isRunning()) m_buildPanel->stop();
         else if (m_debugger && m_debugger->isRunning()) m_debugger->stop();
@@ -607,6 +612,8 @@ void MainWindow::createBuildBar() {
             [](bool checked) { QSettings().setValue(QStringLiteral("run/inTerminal"), checked); });
     build->addSeparator();
     m_configureAction = build->addAction(tr("&Configure Project"), this, [this] { configure(); });
+    m_threadsMenu = build->addMenu(tr("Compile T&hreads"));
+    connect(m_threadsMenu, &QMenu::aboutToShow, this, &MainWindow::fillThreadsMenu);
     m_backendMenu = build->addMenu(tr("Build &Tool"));
     connect(m_backendMenu, &QMenu::aboutToShow, this, &MainWindow::fillBackendMenu);
     bar->addAction(m_buildAction);
@@ -750,6 +757,70 @@ void MainWindow::fillBackendMenu() {
     }
 }
 
+namespace {
+
+// The setting of the compile threads: 0 logical processors, the default;
+// -1 physical cores; else their number.
+int chosenThreads() {
+    return QSettings().value(QStringLiteral("build/threads"), 0).toInt();
+}
+
+} // namespace
+
+BuildOptions MainWindow::buildOptions(bool clean) const {
+    BuildOptions options;
+    const int chosen = chosenThreads();
+    options.jobs = chosen < 0 ? BuildMonitor::physicalCores() : chosen;
+    options.clean = clean;
+    return options;
+}
+
+QString MainWindow::threadsText() const {
+    int threads = buildOptions().jobs;
+    // Logical processors unless the environment decides; the build system says.
+    if (threads == 0) {
+        const int level = qEnvironmentVariableIntValue("CMAKE_BUILD_PARALLEL_LEVEL");
+        threads = level > 0 ? level : QThread::idealThreadCount();
+    }
+    return threads == 1 ? tr("1 thread") : tr("%1 threads").arg(threads);
+}
+
+void MainWindow::fillThreadsMenu() {
+    m_threadsMenu->clear();
+    auto* group = new QActionGroup(m_threadsMenu);
+    const int chosen = chosenThreads();
+    auto choose = [](int threads) { QSettings().setValue(QStringLiteral("build/threads"), threads); };
+    auto add = [&](const QString& text, int threads) {
+        QAction* action = m_threadsMenu->addAction(text, this, [choose, threads] { choose(threads); });
+        action->setCheckable(true);
+        action->setChecked(threads == chosen);
+        group->addAction(action);
+    };
+    add(tr("Logical Processors (%1)").arg(QThread::idealThreadCount()), 0);
+    add(tr("Physical Cores (%1)").arg(BuildMonitor::physicalCores()), -1);
+    add(QStringLiteral("1"), 1);
+    // A number chosen before stays on the list.
+    if (chosen > 1) add(QString::number(chosen), chosen);
+    m_threadsMenu->addSeparator();
+    m_threadsMenu->addAction(tr("Other Number..."), this, [this, chosen, choose] {
+        bool accepted = false;
+        const int threads = QInputDialog::getInt(this, tr("Compile Threads"), tr("Compile at once:"),
+                                                 chosen > 0 ? chosen : QThread::idealThreadCount(), 1, 4096, 1, &accepted);
+        if (accepted) choose(threads);
+    });
+}
+
+void MainWindow::rebuild() {
+    if (!m_buildSystem || m_buildPanel->isRunning() || !saveAll()) return;
+    m_runAfterBuild.clear();
+    m_debugAfterBuild.clear();
+    m_buildDock->show();
+    m_buildDock->raise();
+    m_buildPanel->start(m_buildSystem->buildCommand(buildDirectory(), {}, buildOptions(true)),
+                        tr("Rebuild %1 in %2, %3")
+                            .arg(QFileInfo(m_projectDirectory).fileName(), buildDirectoryName(), threadsText()));
+}
+
 void MainWindow::chooseBackend(const QString& backend) {
     QSettings().setValue(QStringLiteral("build/backend"), backend);
     if (!m_buildSystem || backend.isEmpty() || m_configuring) return;
@@ -853,6 +924,7 @@ void MainWindow::updateBuildActions() {
     m_profileBox->setEnabled(idle && !debugging);
     m_configureAction->setEnabled(idle && !debugging);
     m_buildAction->setEnabled(idle);
+    m_rebuildAction->setEnabled(idle);
     m_runAction->setEnabled(idle && m_targetBox->count() > 0);
     m_targetBox->setEnabled(m_targetBox->count() > 0);
     if (!m_debugAction) return;  // the debugging's actions come later
@@ -879,11 +951,11 @@ void MainWindow::buildAndRun(bool run) {
     const BuildTarget* target = index >= 0 && index < m_targets.size() ? &m_targets[index] : nullptr;
     if (run && !target) return;
     // Without a chosen target Build builds everything.
-    const BuildCommand build = m_buildSystem->buildCommand(buildDirectory(), target ? target->name : QString());
+    const BuildCommand build = m_buildSystem->buildCommand(buildDirectory(), target ? target->name : QString(), buildOptions());
     m_runAfterBuild = run ? target->executable : QString();
     m_runName = run ? target->name : QString();
     m_buildDock->show();
-    m_buildPanel->start(build, tr("Build %1").arg(target ? target->name : QFileInfo(m_projectDirectory).fileName()));
+    m_buildPanel->start(build, tr("Build %1, %2").arg(target ? target->name : QFileInfo(m_projectDirectory).fileName(), threadsText()));
 }
 
 void MainWindow::buildFinished(bool success) {
@@ -987,7 +1059,8 @@ void MainWindow::debugTarget() {
         m_debugAfterBuild = program;
         m_runName = name;
         m_buildDock->show();
-        m_buildPanel->start(m_buildSystem->buildCommand(directory, name), tr("Build %1 for debugging").arg(name));
+        m_buildPanel->start(m_buildSystem->buildCommand(directory, name, buildOptions()),
+                            tr("Build %1 for debugging, %2").arg(name, threadsText()));
     });
 }
 
