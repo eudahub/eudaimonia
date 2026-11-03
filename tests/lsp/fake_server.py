@@ -63,6 +63,23 @@ while True:
         send({"jsonrpc": "2.0", "id": message["id"],
               "result": [{"uri": params["textDocument"]["uri"],
                           "range": {"start": {"line": 0, "character": 4}, "end": {"line": 0, "character": 8}}}]})
+    elif method == "textDocument/hover":
+        # By line: MarkupContent, a MarkedString with its language, a list; line 3 nothing.
+        line = params["position"]["line"]
+        contents = [{"kind": "markdown", "value": "**bold**"},
+                    {"language": "cpp", "value": "int x;"},
+                    ["first", {"language": "cpp", "value": "int y;"}]]
+        result = {"contents": contents[line]} if line < len(contents) else None
+        send({"jsonrpc": "2.0", "id": message["id"], "result": result})
+    elif method == "textDocument/references":
+        uri = params["textDocument"]["uri"]
+        declared = params["context"]["includeDeclaration"]
+        locations = [{"uri": uri, "range": {"start": {"line": 2, "character": 7},
+                                            "end": {"line": 2, "character": 9}}}]
+        if declared:
+            locations.append({"uri": uri, "range": {"start": {"line": 0, "character": 1},
+                                                    "end": {"line": 0, "character": 3}}})
+        send({"jsonrpc": "2.0", "id": message["id"], "result": locations})
     elif method == "textDocument/completion":
         line = params["position"]["line"]
         items = [{"label": " alpha(int a)", "detail": "int", "filterText": "alpha", "sortText": "2", "kind": 3,

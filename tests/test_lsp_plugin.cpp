@@ -206,6 +206,48 @@ private slots:
         QVERIFY(found.isEmpty());
     }
 
+    // Each form the protocol allows for a hover's contents, as Markdown.
+    void describesASymbol() {
+        const QString path = m_project.filePath("src/a.fake");
+        auto hover = [&](int line) {
+            QString text = QStringLiteral("no answer");
+            bool answered = false;
+            m_lsp->hover(path, {line, 0}, [&](const QString& answer) {
+                text = answer;
+                answered = true;
+            });
+            return QTest::qWaitFor([&] { return answered; }, 10000) ? text : QStringLiteral("no answer");
+        };
+        QCOMPARE(hover(0), QStringLiteral("**bold**"));
+        QCOMPARE(hover(1), QStringLiteral("```cpp\nint x;\n```"));
+        QCOMPARE(hover(2), QStringLiteral("first\n\n```cpp\nint y;\n```"));
+        QCOMPARE(hover(3), QString());
+        // No server for the file: an answer of nothing, at once.
+        QString none = QStringLiteral("no answer");
+        m_lsp->hover(m_project.filePath("x.txt"), {0, 0}, [&](const QString& answer) { none = answer; });
+        QVERIFY(none.isEmpty());
+    }
+
+    // The declaration asked for too.
+    void findsReferences() {
+        const QString path = m_project.filePath("src/a.fake");
+        QList<SourceLocation> found;
+        bool answered = false;
+        m_lsp->findReferences(path, {0, 1}, [&](const QList<SourceLocation>& locations) {
+            found = locations;
+            answered = true;
+        });
+        QTRY_VERIFY(answered);
+        QCOMPARE(found.size(), 2);
+        QCOMPARE(found.at(0).file, path);
+        QCOMPARE(found.at(0).position.line, 2);
+        QCOMPARE(found.at(0).position.column, 7);
+        QCOMPARE(found.at(1).position.line, 0);
+        bool none = false;
+        m_lsp->findReferences(m_project.filePath("x.txt"), {0, 0}, [&](const QList<SourceLocation>& l) { none = l.isEmpty(); });
+        QVERIFY(none);
+    }
+
     void savesClosesAndShutsDown() {
         const QString path = m_project.filePath("src/a.fake");
         m_lsp->changed(path, QStringLiteral("bad again\n"));

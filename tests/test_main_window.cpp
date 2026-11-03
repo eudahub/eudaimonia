@@ -7,6 +7,7 @@
 #include "BuildPanel.h"
 #include "DebugPanel.h"
 #include "MainWindow.h"
+#include "NewProjectDialog.h"
 #include "RunPanel.h"
 
 #include <mrutabwidget.h>
@@ -16,6 +17,9 @@
 #include <QAction>
 #include <QApplication>
 #include <QComboBox>
+#include <QDialogButtonBox>
+#include <QLineEdit>
+#include <QPushButton>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -486,6 +490,40 @@ private slots:
         }
         resume->trigger();
         QTRY_VERIFY_WITH_TIMEOUT(debug->isEnabled(), 10000);
+    }
+
+    // Through the dialog: OK only for a good name and a directory not there yet;
+    // the project opens with its main file.
+    void makesANewProject() {
+        QTemporaryDir location;
+        QVERIFY(QDir(location.path()).mkdir(QStringLiteral("taken")));
+        QSettings().setValue(QStringLiteral("newProject/location"), location.path());
+        Window w;
+        QVERIFY(w.active());
+        QAction* action = actionWithKey(w.window, QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N));
+        QVERIFY(action);
+        bool checked = false;
+        QTimer::singleShot(50, qApp, [&checked] {
+            auto* dialog = qobject_cast<eudaimonia::NewProjectDialog*>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            auto* ok = dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok);
+            auto* name = dialog->findChild<QLineEdit*>();
+            const bool emptyOff = !ok->isEnabled();
+            name->setText(QStringLiteral("taken"));
+            const bool takenOff = !ok->isEnabled();
+            name->setText(QStringLiteral("bad name"));
+            const bool badOff = !ok->isEnabled();
+            name->setText(QStringLiteral("fresh"));
+            checked = emptyOff && takenOff && badOff && ok->isEnabled();
+            dialog->findChild<QListWidget*>()->setCurrentRow(2);  // a Rust program
+            ok->click();
+        });
+        action->trigger();
+        QVERIFY(checked);
+        QCOMPARE(QFileInfo(w.window.projectDirectory()).fileName(), QStringLiteral("fresh"));
+        QVERIFY(QFile::exists(location.filePath(QStringLiteral("fresh/Cargo.toml"))));
+        QCOMPARE(w.tab(), QStringLiteral("main.rs"));
+        QSettings().remove(QStringLiteral("newProject/location"));
     }
 
     void backAndForwardAcrossFiles() {

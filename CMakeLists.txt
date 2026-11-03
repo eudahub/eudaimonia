@@ -267,6 +267,15 @@ if(EUDAIMONIA_BUILD_TESTS)
     add_test(NAME dap_plugin COMMAND test_dap_plugin)
     set_tests_properties(dap_plugin PROPERTIES TIMEOUT 120)
 
+    # The templates of new projects, from the program's resources.
+    add_executable(test_project_templates tests/test_project_templates.cpp src/app/ProjectTemplates.cpp
+        resources/eudaimonia.qrc)
+    target_include_directories(test_project_templates PRIVATE src/app)
+    target_compile_definitions(test_project_templates PRIVATE
+        TEMPLATES_DIR="${CMAKE_SOURCE_DIR}/resources/templates")
+    target_link_libraries(test_project_templates PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME project_templates COMMAND test_project_templates)
+
     # The Cargo plugin on small projects of the test, when cargo is installed.
     add_executable(test_cargo_plugin tests/test_cargo_plugin.cpp)
     target_compile_definitions(test_cargo_plugin PRIVATE
