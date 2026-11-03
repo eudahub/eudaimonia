@@ -510,6 +510,7 @@ void MainWindow::createBuildBar() {
     QToolBar* bar = addToolBar(tr("Build"));
     bar->setObjectName(QStringLiteral("buildBar"));
     m_profileBox = new QComboBox;
+    m_profileBox->setObjectName(QStringLiteral("buildProfile"));
     m_profileBox->addItem(tr("Default"), QStringLiteral("build"));
     m_profileBox->addItem(tr("Debug"), QStringLiteral("build-debug"));
     m_profileBox->addItem(tr("Release"), QStringLiteral("build-release"));

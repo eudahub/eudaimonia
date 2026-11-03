@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The main window with the real plugins, driven by keys (offscreen): closing
-// tabs, Select Word, Back and Forward, and Go to Definition with the language
-// server written for the tests (tests/lsp/fake_server.py, needs python3).
+// tabs, Select Word, build profiles, Back and Forward, and Go to Definition
+// with the language server written for the tests (tests/lsp/fake_server.py,
+// needs python3).
 #include "MainWindow.h"
 
 #include <mrutabwidget.h>
@@ -9,6 +10,7 @@
 #include <QAbstractButton>
 #include <QAbstractScrollArea>
 #include <QApplication>
+#include <QComboBox>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -126,6 +128,63 @@ private slots:
         QTest::keyClick(area, Qt::Key_X);
         QTest::keyClick(area, Qt::Key_S, Qt::ControlModifier);
         QCOMPARE(read(path), QByteArray("alpha x beta\n"));
+    }
+
+    // Each profile configures a directory of its own, and the project
+    // remembers the one chosen. No compiler: a project of no language.
+    void buildProfiles() {
+        if (QStandardPaths::findExecutable(QStringLiteral("cmake")).isEmpty()) QSKIP("cmake is not installed");
+        QTemporaryDir project;
+        QFile lists(project.filePath(QStringLiteral("CMakeLists.txt")));
+        QVERIFY(lists.open(QIODevice::WriteOnly));
+        lists.write("cmake_minimum_required(VERSION 3.21)\nproject(p NONE)\n");
+        lists.close();
+        auto buildType = [&](const QString& directory) {
+            QFile cache(project.filePath(directory + QStringLiteral("/CMakeCache.txt")));
+            if (!cache.open(QIODevice::ReadOnly)) return QStringLiteral("no cache");
+            for (const QByteArray& line : cache.readAll().split('\n'))
+                if (line.startsWith("CMAKE_BUILD_TYPE:")) return QString::fromLatin1(line.mid(line.indexOf('=') + 1));
+            return QString();
+        };
+        {
+            Window w;
+            QVERIFY(w.active());
+            QVERIFY(w.window.openProject(project.path()));
+            auto* profile = w.window.findChild<QComboBox*>(QStringLiteral("buildProfile"));
+            QVERIFY(profile);
+            QCOMPARE(profile->currentData().toString(), QStringLiteral("build"));
+            QTRY_VERIFY_WITH_TIMEOUT(profile->isEnabled(), 20000);
+            QVERIFY(QFile::exists(project.filePath(QStringLiteral("build/CMakeCache.txt"))));
+            QCOMPARE(buildType(QStringLiteral("build")), QString());
+            for (const char* directory : {"build-debug", "build-release"}) {
+                profile->setCurrentIndex(profile->findData(QString::fromLatin1(directory)));
+                emit profile->activated(profile->currentIndex());
+                QVERIFY(!profile->isEnabled());
+                QTRY_VERIFY_WITH_TIMEOUT(profile->isEnabled(), 20000);
+            }
+            QCOMPARE(buildType(QStringLiteral("build-debug")), QStringLiteral("Debug"));
+            QCOMPARE(buildType(QStringLiteral("build-release")), QStringLiteral("Release"));
+        }
+        Window again;
+        QVERIFY(again.active());
+        QVERIFY(again.window.openProject(project.path()));
+        QCOMPARE(again.window.findChild<QComboBox*>(QStringLiteral("buildProfile"))->currentData().toString(),
+                 QStringLiteral("build-release"));
+    }
+
+    // Closing the window lets go of a configuration still going on: its end
+    // would come to a window half destroyed.
+    void closesWhileConfiguring() {
+        if (QStandardPaths::findExecutable(QStringLiteral("cmake")).isEmpty()) QSKIP("cmake is not installed");
+        QTemporaryDir project;
+        QFile lists(project.filePath(QStringLiteral("CMakeLists.txt")));
+        QVERIFY(lists.open(QIODevice::WriteOnly));
+        lists.write("cmake_minimum_required(VERSION 3.21)\nproject(p NONE)\n");
+        lists.close();
+        Window w;
+        QVERIFY(w.active());
+        QVERIFY(w.window.openProject(project.path()));
+        QVERIFY(!w.window.findChild<QComboBox*>(QStringLiteral("buildProfile"))->isEnabled());
     }
 
     void backAndForwardAcrossFiles() {
