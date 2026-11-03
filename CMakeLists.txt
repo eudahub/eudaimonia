@@ -50,7 +50,7 @@ set(SPP_BUILD_FINDBAR ON)
 set(SPP_BUILD_ARCHIVE OFF)
 FetchContent_Declare(siplasplas_plugins
     GIT_REPOSITORY https://github.com/siplasplas/siplasplas-plugins.git
-    GIT_TAG v0.10.0
+    GIT_TAG v0.11.0
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(siplasplas_plugins)
 

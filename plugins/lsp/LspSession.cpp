@@ -56,7 +56,11 @@ bool LspSession::start() {
         {QStringLiteral("textDocument"),
          QJsonObject{{QStringLiteral("synchronization"), QJsonObject{{QStringLiteral("didSave"), true}}},
                      {QStringLiteral("publishDiagnostics"), QJsonObject{{QStringLiteral("relatedInformation"), false}}},
-                     {QStringLiteral("definition"), QJsonObject{{QStringLiteral("linkSupport"), true}}}}},
+                     {QStringLiteral("definition"), QJsonObject{{QStringLiteral("linkSupport"), true}}},
+                     // Written as plain text: no snippets with places to fill in.
+                     {QStringLiteral("completion"),
+                      QJsonObject{{QStringLiteral("completionItem"), QJsonObject{{QStringLiteral("snippetSupport"), false}}},
+                                  {QStringLiteral("contextSupport"), true}}}}},
         {QStringLiteral("general"), QJsonObject{{QStringLiteral("positionEncodings"), QJsonArray{QStringLiteral("utf-16")}}}}};
     const QJsonObject params{
         {QStringLiteral("processId"), qint64(QCoreApplication::applicationPid())},

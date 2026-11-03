@@ -165,6 +165,11 @@ private:
     void showDiagnostics(const QString& file, const QList<Diagnostic>& list);
     void updateProblems();
     void goToDefinition();
+    // Ctrl+Space: what the language server can write at the cursor.
+    void completeCode();
+    // Asks for the completions, shown in the tab when they come: `asked` by
+    // the user says so when there are none.
+    void requestCompletions(Editor& editor, bool asked);
     // Selects the word at the cursor (Ctrl+W).
     void selectWord();
     // Opens the file at a line and column from 1 (0: the line's start).
@@ -235,6 +240,7 @@ private:
     LanguageSupport* m_language = nullptr;
     std::unique_ptr<LanguageListener> m_languageListener;
     QString m_languageBuildDirectory;  // the one the servers were given
+    int m_completionRequest = 0;       // answers to those before are let go
     QHash<QString, QList<Diagnostic>> m_diagnostics;  // by file
     QSet<QString> m_reportedMissingServers;           // told once a session
     QDockWidget* m_problemsDock = nullptr;

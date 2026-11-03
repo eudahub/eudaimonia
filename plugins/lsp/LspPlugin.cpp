@@ -19,6 +19,8 @@
 #include <QTimer>
 #include <QUrl>
 
+#include <algorithm>
+
 namespace eudaimonia {
 namespace {
 
@@ -181,6 +183,26 @@ public:
                          });
     }
 
+    void complete(const QString& file, SourcePosition position,
+                  std::function<void(const QList<Completion>&, bool)> done) override {
+        lsp::LspSession* session = m_documents.contains(file) ? m_sessions.value(m_documents.value(file).server) : nullptr;
+        if (!session) {
+            done({}, false);
+            return;
+        }
+        flush(file);
+        session->request(QStringLiteral("textDocument/completion"),
+                         {{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uriOf(file)}}},
+                          {QStringLiteral("position"), positionJson(position)},
+                          {QStringLiteral("context"), QJsonObject{{QStringLiteral("triggerKind"), 1}}}},
+                         [done](const QJsonValue& result) {
+                             // CompletionItem[] or CompletionList.
+                             const QJsonObject list = result.toObject();
+                             const QJsonArray items = result.isArray() ? result.toArray() : list.value(QStringLiteral("items")).toArray();
+                             done(completionsOf(items), list.value(QStringLiteral("isIncomplete")).toBool());
+                         });
+    }
+
     void shutdown() override {
         for (Document& document : m_documents)
             if (document.timer) document.timer->deleteLater();
@@ -202,6 +224,50 @@ private:
         bool hasPending = false;
         QPointer<QTimer> timer;
     };
+
+    // In the order the server wants (sortText), without what it marks labels
+    // with (clangd: a space, or a bullet for what needs an #include).
+    static QList<Completion> completionsOf(const QJsonArray& items) {
+        struct Sorted {
+            QString key;
+            Completion completion;
+        };
+        QList<Sorted> sorted;
+        sorted.reserve(items.size());
+        for (const QJsonValue& value : items) {
+            const QJsonObject item = value.toObject();
+            Completion completion;
+            completion.label = item.value(QStringLiteral("label")).toString().trimmed();
+            if (completion.label.startsWith(QChar(0x2022))) completion.label = completion.label.mid(1).trimmed();
+            completion.detail = item.value(QStringLiteral("detail")).toString();
+            completion.filterText = item.value(QStringLiteral("filterText")).toString(completion.label);
+            completion.insertText = item.value(QStringLiteral("insertText")).toString(completion.label);
+            // A TextEdit, or an InsertReplaceEdit.
+            const QJsonObject edit = item.value(QStringLiteral("textEdit")).toObject();
+            if (!edit.isEmpty()) {
+                completion.insertText = edit.value(QStringLiteral("newText")).toString(completion.insertText);
+                QJsonObject range = edit.value(QStringLiteral("range")).toObject();
+                if (range.isEmpty()) range = edit.value(QStringLiteral("insert")).toObject();
+                if (!range.isEmpty()) {
+                    completion.hasStart = true;
+                    completion.start = positionOf(range.value(QStringLiteral("start")));
+                }
+            }
+            for (const QJsonValue& additional : item.value(QStringLiteral("additionalTextEdits")).toArray()) {
+                const QJsonObject object = additional.toObject();
+                const QJsonObject range = object.value(QStringLiteral("range")).toObject();
+                completion.additionalEdits << SourceEdit{positionOf(range.value(QStringLiteral("start"))),
+                                                         positionOf(range.value(QStringLiteral("end"))),
+                                                         object.value(QStringLiteral("newText")).toString()};
+            }
+            sorted.append({item.value(QStringLiteral("sortText")).toString(completion.label), completion});
+        }
+        std::stable_sort(sorted.begin(), sorted.end(), [](const Sorted& a, const Sorted& b) { return a.key < b.key; });
+        QList<Completion> completions;
+        completions.reserve(sorted.size());
+        for (const Sorted& one : std::as_const(sorted)) completions << one.completion;
+        return completions;
+    }
 
     const lsp::ServerSpec* specFor(const QString& file) const {
         for (const lsp::ServerSpec& spec : m_servers)

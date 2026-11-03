@@ -117,6 +117,7 @@ struct MainWindow::Editor : spp::EditorViewListener {
 
     void modificationChanged(bool) override { window->updateTabText(page); }
     void breakpointsChanged(const QList<int>& lines) override { window->setFileBreakpoints(view->filePath(), lines); }
+    void completionsNeeded(spp::TextPosition) override { window->requestCompletions(*this, false); }
     void filePathChanged(const QString& path) override {
         window->updateTabText(page);
         window->showBreakpoints(*this);
@@ -303,6 +304,7 @@ void MainWindow::createMenus() {
     // Finding and replacing: the find bar under the tabs.
     QMenu* edit = menuBar()->addMenu(tr("&Edit"));
     edit->addAction(tr("Select &Word"), this, &MainWindow::selectWord)->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_W));
+    edit->addAction(tr("&Complete Code"), this, &MainWindow::completeCode)->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Space));
     edit->addSeparator();
     auto withBar = [this](void (spp::FindBar::*act)()) {
         return [this, act] {
@@ -1296,6 +1298,58 @@ void MainWindow::selectWord() {
     while (inWord(start - 1)) --start;
     while (inWord(end)) ++end;
     view->setSelection({{cursor.line, start}, {cursor.line, end}});
+}
+
+void MainWindow::completeCode() {
+    const auto editor = m_editors.find(m_tabs->currentWidget());
+    if (editor == m_editors.end()) return;
+    if (!m_language) {
+        QMessageBox::critical(this, tr("Language Support Plugin Missing"),
+                              m_plugins.missingMessage(QStringLiteral(EUDAIMONIA_LANGUAGESUPPORT_IID), tr("Code completion")));
+        return;
+    }
+    if (editor->second->languageFile.isEmpty()) {
+        statusBar()->showMessage(tr("No language server for %1").arg(QFileInfo(editor->second->view->filePath()).fileName()),
+                                 5000);
+        return;
+    }
+    requestCompletions(*editor->second, true);
+}
+
+void MainWindow::requestCompletions(Editor& editor, bool asked) {
+    if (!m_language || editor.languageFile.isEmpty()) return;
+    const QString file = editor.languageFile;
+    const spp::TextPosition cursor = editor.view->cursorPosition();
+    // The key just typed may not have been told yet.
+    m_language->changed(file, editor.view->text());
+    const int request = ++m_completionRequest;
+    QPointer<QWidget> asker = editor.page;
+    m_language->complete(file, {cursor.line, cursor.column}, [this, asker, request, cursor, asked](const QList<Completion>& found, bool incomplete) {
+        if (!asker || request != m_completionRequest) return;
+        spp::EditorView* view = viewOf(asker);
+        if (!view) return;
+        if (found.isEmpty() && asked) statusBar()->showMessage(tr("No completions here"), 3000);
+        QList<spp::CompletionItem> items;
+        items.reserve(found.size());
+        for (const Completion& completion : found) {
+            spp::CompletionItem item{completion.label, completion.detail, completion.filterText, completion.insertText, {}};
+            for (const SourceEdit& edit : completion.additionalEdits)
+                item.additionalEdits.append({{{edit.start.line, edit.start.column}, {edit.end.line, edit.end.column}}, edit.text});
+            items << item;
+        }
+        // Where the server says the word starts, else where it starts here.
+        spp::TextPosition start{cursor.line, cursor.column};
+        if (!found.isEmpty() && found.first().hasStart && found.first().start.line == cursor.line
+            && found.first().start.column <= cursor.column) {
+            start.column = found.first().start.column;
+        } else {
+            const QString line = view->text().section(QLatin1Char('\n'), cursor.line, cursor.line);
+            while (start.column > 0 && start.column <= line.size()
+                   && (line.at(start.column - 1).isLetterOrNumber() || line.at(start.column - 1) == QLatin1Char('_')))
+                --start.column;
+        }
+        view->showCompletions(items, start, incomplete);
+    });
 }
 
 void MainWindow::goToDefinition() {

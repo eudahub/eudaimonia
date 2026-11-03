@@ -65,7 +65,12 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   link: with Ctrl held, a word under the mouse whose definition the language
   server knows looks like a link (blue, underlined, under a pointing hand).
   Words it knows nothing of — comments, plain text, files without a server —
-  stay as they are, and a Ctrl+click on them is an ordinary click.
+  stay as they are, and a Ctrl+click on them is an ordinary click. **Edit →
+  Complete Code** (Ctrl+Space) lists what the server can write at the cursor,
+  with signatures and types, under the word being typed. Typing narrows the
+  list down; Up and Down choose, Enter or Tab write the choice with any
+  `#include` it needs, Escape closes the list. Right after a file opens clangd
+  may answer with plain words of the file until it has parsed it.
 - **Navigate → Back** (Ctrl+Alt+Left) returns to where one was before, across
   files, and **Forward** (Ctrl+Alt+Right) undoes it: places are kept when
   another tab is shown (also for a file opened), before a jump (Go to

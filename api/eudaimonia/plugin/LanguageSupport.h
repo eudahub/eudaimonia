@@ -47,6 +47,26 @@ struct Diagnostic {
     QString source;  // e.g. "clang"
 };
 
+// A change of a document's text.
+struct SourceEdit {
+    SourcePosition start;
+    SourcePosition end;
+    QString text;
+};
+
+// What can be written at a position.
+struct Completion {
+    QString label;       // for the user
+    QString detail;      // e.g. a type
+    QString filterText;  // what typing is matched with
+    QString insertText;  // written instead of the word being typed
+    // Where the word being typed starts, when the server says.
+    bool hasStart = false;
+    SourcePosition start;
+    // Elsewhere in the document, e.g. the #include it needs.
+    QList<SourceEdit> additionalEdits;
+};
+
 // Told what the servers report; the IDE implements what it needs.
 class LanguageSupportListener {
 public:
@@ -84,13 +104,19 @@ public:
     virtual void findDefinition(const QString& file, SourcePosition position,
                                 std::function<void(const QList<SourceLocation>&)> done) = 0;
 
+    // What can be written at `position`, the best first; `incomplete`: the
+    // server has more, to ask for again as the word grows. None when the
+    // server knows nothing (or there is no server).
+    virtual void complete(const QString& file, SourcePosition position,
+                          std::function<void(const QList<Completion>& items, bool incomplete)> done) = 0;
+
     // Stops every server (e.g. when the IDE closes).
     virtual void shutdown() = 0;
 };
 
 } // namespace eudaimonia
 
-#define EUDAIMONIA_LANGUAGESUPPORT_IID "io.github.eudahub.eudaimonia.LanguageSupport/1"
+#define EUDAIMONIA_LANGUAGESUPPORT_IID "io.github.eudahub.eudaimonia.LanguageSupport/2"
 Q_DECLARE_INTERFACE(eudaimonia::LanguageSupport, EUDAIMONIA_LANGUAGESUPPORT_IID)
 
 #endif // EUDAIMONIA_PLUGIN_LANGUAGESUPPORT_H
