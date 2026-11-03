@@ -183,6 +183,44 @@ public:
                          });
     }
 
+    void hover(const QString& file, SourcePosition position, std::function<void(const QString&)> done) override {
+        lsp::LspSession* session = m_documents.contains(file) ? m_sessions.value(m_documents.value(file).server) : nullptr;
+        if (!session) {
+            done({});
+            return;
+        }
+        flush(file);
+        session->request(QStringLiteral("textDocument/hover"),
+                         {{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uriOf(file)}}},
+                          {QStringLiteral("position"), positionJson(position)}},
+                         [done](const QJsonValue& result) { done(markdownOf(result.toObject().value(QStringLiteral("contents")))); });
+    }
+
+    void findReferences(const QString& file, SourcePosition position,
+                        std::function<void(const QList<SourceLocation>&)> done) override {
+        lsp::LspSession* session = m_documents.contains(file) ? m_sessions.value(m_documents.value(file).server) : nullptr;
+        if (!session) {
+            done({});
+            return;
+        }
+        flush(file);
+        session->request(QStringLiteral("textDocument/references"),
+                         {{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uriOf(file)}}},
+                          {QStringLiteral("position"), positionJson(position)},
+                          {QStringLiteral("context"), QJsonObject{{QStringLiteral("includeDeclaration"), true}}}},
+                         [done](const QJsonValue& result) {
+                             QList<SourceLocation> locations;
+                             for (const QJsonValue& item : result.toArray()) {
+                                 const QJsonObject object = item.toObject();
+                                 const QString uri = object.value(QStringLiteral("uri")).toString();
+                                 if (uri.isEmpty()) continue;
+                                 locations << SourceLocation{QUrl(uri).toLocalFile(),
+                                                             positionOf(object.value(QStringLiteral("range")).toObject().value(QStringLiteral("start")))};
+                             }
+                             done(locations);
+                         });
+    }
+
     void complete(const QString& file, SourcePosition position,
                   std::function<void(const QList<Completion>&, bool)> done) override {
         lsp::LspSession* session = m_documents.contains(file) ? m_sessions.value(m_documents.value(file).server) : nullptr;
@@ -224,6 +262,21 @@ private:
         bool hasPending = false;
         QPointer<QTimer> timer;
     };
+
+    // A hover's contents as Markdown: MarkupContent, a MarkedString (text, or
+    // code with its language), or a list of those.
+    static QString markdownOf(const QJsonValue& contents) {
+        if (contents.isString()) return contents.toString();
+        if (contents.isArray()) {
+            QStringList parts;
+            for (const QJsonValue& part : contents.toArray()) parts << markdownOf(part);
+            return parts.join(QStringLiteral("\n\n"));
+        }
+        const QJsonObject object = contents.toObject();
+        const QString value = object.value(QStringLiteral("value")).toString();
+        const QString language = object.value(QStringLiteral("language")).toString();
+        return language.isEmpty() ? value : QStringLiteral("```%1\n%2\n```").arg(language, value);
+    }
 
     // In the order the server wants (sortText), without what it marks labels
     // with (clangd: a space, or a bullet for what needs an #include).

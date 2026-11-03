@@ -110,13 +110,21 @@ public:
     virtual void complete(const QString& file, SourcePosition position,
                           std::function<void(const QList<Completion>& items, bool incomplete)> done) = 0;
 
+    // A description of the symbol at `position`, in Markdown; empty when the
+    // server has none (or there is no server).
+    virtual void hover(const QString& file, SourcePosition position, std::function<void(const QString&)> done) = 0;
+
+    // Where the symbol at `position` is used, its declaration included.
+    virtual void findReferences(const QString& file, SourcePosition position,
+                                std::function<void(const QList<SourceLocation>&)> done) = 0;
+
     // Stops every server (e.g. when the IDE closes).
     virtual void shutdown() = 0;
 };
 
 } // namespace eudaimonia
 
-#define EUDAIMONIA_LANGUAGESUPPORT_IID "io.github.eudahub.eudaimonia.LanguageSupport/2"
+#define EUDAIMONIA_LANGUAGESUPPORT_IID "io.github.eudahub.eudaimonia.LanguageSupport/3"
 Q_DECLARE_INTERFACE(eudaimonia::LanguageSupport, EUDAIMONIA_LANGUAGESUPPORT_IID)
 
 #endif // EUDAIMONIA_PLUGIN_LANGUAGESUPPORT_H

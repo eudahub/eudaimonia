@@ -177,6 +177,9 @@ private:
     void showDiagnostics(const QString& file, const QList<Diagnostic>& list);
     void updateProblems();
     void goToDefinition();
+    // Alt+F7: where the symbol at the cursor is used, listed in References.
+    void findReferences();
+    void showReferences(const QList<SourceLocation>& locations);
     // Ctrl+Space: what the language server can write at the cursor.
     void completeCode();
     // Asks for the completions, shown in the tab when they come: `asked` by
@@ -260,6 +263,8 @@ private:
     QSet<QString> m_reportedMissingServers;           // told once a session
     QDockWidget* m_problemsDock = nullptr;
     QListWidget* m_problems = nullptr;
+    QDockWidget* m_referencesDock = nullptr;
+    QListWidget* m_references = nullptr;
 
     NavigationHistory m_history;
     QAction* m_backAction = nullptr;

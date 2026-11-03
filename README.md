@@ -65,7 +65,11 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   link: with Ctrl held, a word under the mouse whose definition the language
   server knows looks like a link (blue, underlined, under a pointing hand).
   Words it knows nothing of — comments, plain text, files without a server —
-  stay as they are, and a Ctrl+click on them is an ordinary click. **Edit →
+  stay as they are, and a Ctrl+click on them is an ordinary click. When the
+  mouse rests on a word, what the server says of it shows beside the mouse,
+  after any errors there. **Navigate → Find References** (Alt+F7) lists in the
+  **References** panel where the symbol at the cursor is used, each with its
+  line; a click opens the place. **Edit →
   Complete Code** (Ctrl+Space) lists what the server can write at the cursor,
   with signatures and types, under the word being typed. Typing narrows the
   list down; Up and Down choose, Enter or Tab write the choice with any

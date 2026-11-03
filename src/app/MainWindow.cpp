@@ -45,6 +45,8 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 
+#include <algorithm>
+
 namespace eudaimonia {
 namespace {
 
@@ -121,6 +123,16 @@ struct MainWindow::Editor : spp::EditorViewListener {
     void modificationChanged(bool) override { window->updateTabText(page); }
     void breakpointsChanged(const QList<int>& lines) override { window->setFileBreakpoints(view->filePath(), lines); }
     void completionsNeeded(spp::TextPosition) override { window->requestCompletions(*this, false); }
+    // The mouse rests on a word: what the language server says of it.
+    void hoverQueried(spp::TextPosition position) override {
+        if (languageFile.isEmpty() || !window->m_language) return;
+        QPointer<QWidget> asker = page;
+        MainWindow* owner = window;
+        window->m_language->hover(languageFile, {position.line, position.column}, [owner, asker, position](const QString& text) {
+            if (!asker) return;
+            if (spp::EditorView* view = owner->viewOf(asker)) view->answerHover(position, text);
+        });
+    }
     void filePathChanged(const QString& path) override {
         window->updateTabText(page);
         window->showBreakpoints(*this);
@@ -1255,6 +1267,17 @@ void MainWindow::setUpLanguages() {
     tabifyDockWidget(m_buildDock, m_problemsDock);
     m_problemsDock->hide();
 
+    // Where a symbol is used, each opening its place.
+    m_references = new QListWidget;
+    connect(m_references, &QListWidget::itemActivated, this, open);
+    connect(m_references, &QListWidget::itemClicked, this, open);
+    m_referencesDock = new QDockWidget(tr("References"), this);
+    m_referencesDock->setObjectName(QStringLiteral("referencesDock"));
+    m_referencesDock->setWidget(m_references);
+    addDockWidget(Qt::BottomDockWidgetArea, m_referencesDock);
+    tabifyDockWidget(m_buildDock, m_referencesDock);
+    m_referencesDock->hide();
+
     QMenu* navigate = menuBar()->insertMenu(menuBar()->actions().last(), new QMenu(tr("&Navigate"), this))->menu();
     m_backAction = navigate->addAction(tr("&Back"), this, &MainWindow::navigateBack);
     m_backAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_Left));
@@ -1263,7 +1286,10 @@ void MainWindow::setUpLanguages() {
     navigate->addSeparator();
     QAction* definition = navigate->addAction(tr("Go to &Definition"), this, &MainWindow::goToDefinition);
     definition->setShortcut(QKeySequence(Qt::Key_F12));
+    QAction* references = navigate->addAction(tr("Find &References"), this, &MainWindow::findReferences);
+    references->setShortcut(QKeySequence(Qt::ALT | Qt::Key_F7));
     navigate->addAction(m_problemsDock->toggleViewAction());
+    navigate->addAction(m_referencesDock->toggleViewAction());
     updateNavigationActions();
 }
 
@@ -1478,6 +1504,71 @@ void MainWindow::goToDefinition() {
                                    const SourceLocation& first = locations.first();
                                    openLocation(first.file, first.position.line + 1, first.position.column + 1);
                                });
+}
+
+void MainWindow::findReferences() {
+    const auto editor = m_editors.find(m_tabs->currentWidget());
+    if (editor == m_editors.end()) return;
+    if (!m_language) {
+        QMessageBox::critical(this, tr("Language Support Plugin Missing"),
+                              m_plugins.missingMessage(QStringLiteral(EUDAIMONIA_LANGUAGESUPPORT_IID), tr("Find References")));
+        return;
+    }
+    if (editor->second->languageFile.isEmpty()) {
+        statusBar()->showMessage(tr("No language server for %1").arg(QFileInfo(editor->second->view->filePath()).fileName()),
+                                 5000);
+        return;
+    }
+    const spp::TextPosition cursor = editor->second->view->cursorPosition();
+    statusBar()->showMessage(tr("Looking for the references..."));
+    m_language->findReferences(editor->second->languageFile, {cursor.line, cursor.column},
+                               [this](const QList<SourceLocation>& locations) { showReferences(locations); });
+}
+
+void MainWindow::showReferences(const QList<SourceLocation>& locations) {
+    if (locations.isEmpty()) {
+        statusBar()->showMessage(tr("No references found"), 5000);
+        return;
+    }
+    statusBar()->clearMessage();
+    QList<SourceLocation> sorted = locations;
+    std::sort(sorted.begin(), sorted.end(), [](const SourceLocation& a, const SourceLocation& b) {
+        if (a.file != b.file) return a.file < b.file;
+        return a.position.line != b.position.line ? a.position.line < b.position.line : a.position.column < b.position.column;
+    });
+    // Each with its line: as an open tab has it, else as the file has.
+    QHash<QString, QStringList> texts;
+    auto lineOf = [&](const QString& file, int line) {
+        if (!texts.contains(file)) {
+            QString text;
+            if (spp::EditorView* view = viewOf(m_tabs->findTab(file))) {
+                text = view->text();
+            } else {
+                QFile in(file);
+                if (in.size() <= maxFileSize && in.open(QIODevice::ReadOnly)) text = QString::fromUtf8(in.readAll());
+            }
+            texts.insert(file, text.split(QLatin1Char('\n')));
+        }
+        return texts[file].value(line).trimmed();
+    };
+    m_references->clear();
+    for (const SourceLocation& location : std::as_const(sorted)) {
+        const QString shown = !m_projectDirectory.isEmpty() && location.file.startsWith(m_projectDirectory + '/')
+                                  ? QDir(m_projectDirectory).relativeFilePath(location.file)
+                                  : location.file;
+        auto* item = new QListWidgetItem(QStringLiteral("%1:%2:%3: %4")
+                                             .arg(shown)
+                                             .arg(location.position.line + 1)
+                                             .arg(location.position.column + 1)
+                                             .arg(lineOf(location.file, location.position.line)));
+        item->setData(Qt::UserRole, location.file);
+        item->setData(Qt::UserRole + 1, location.position.line + 1);
+        item->setData(Qt::UserRole + 2, location.position.column + 1);
+        m_references->addItem(item);
+    }
+    m_referencesDock->setWindowTitle(tr("References (%1)").arg(sorted.size()));
+    m_referencesDock->show();
+    m_referencesDock->raise();
 }
 
 void MainWindow::openLocation(const QString& file, int line, int column) {

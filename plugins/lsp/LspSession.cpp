@@ -57,6 +57,8 @@ bool LspSession::start() {
          QJsonObject{{QStringLiteral("synchronization"), QJsonObject{{QStringLiteral("didSave"), true}}},
                      {QStringLiteral("publishDiagnostics"), QJsonObject{{QStringLiteral("relatedInformation"), false}}},
                      {QStringLiteral("definition"), QJsonObject{{QStringLiteral("linkSupport"), true}}},
+                     {QStringLiteral("hover"),
+                      QJsonObject{{QStringLiteral("contentFormat"), QJsonArray{QStringLiteral("markdown"), QStringLiteral("plaintext")}}}},
                      // Written as plain text: no snippets with places to fill in.
                      {QStringLiteral("completion"),
                       QJsonObject{{QStringLiteral("completionItem"), QJsonObject{{QStringLiteral("snippetSupport"), false}}},
