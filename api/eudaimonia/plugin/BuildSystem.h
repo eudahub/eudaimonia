@@ -67,6 +67,12 @@ public:
     // CMakeLists.txt).
     virtual bool recognizes(const QString& projectDir) const = 0;
 
+    // Where a project is built with a build type ("Debug", "Release", or
+    // empty: the project's own choice), e.g. CMake's <project>/build-debug.
+    virtual QString buildDirectory(const QString& projectDir, const QString& buildType) const = 0;
+    // Configuring itself can be debugged (DebugRequest::Kind::CMakeConfigure).
+    virtual bool canDebugConfigure() const = 0;
+
     // The tools that can do the building, installed here, the preferred
     // first, e.g. CMake's generators {"Ninja", "Unix Makefiles"}.
     virtual QStringList backends() const = 0;
@@ -94,7 +100,7 @@ public:
 
 } // namespace eudaimonia
 
-#define EUDAIMONIA_BUILDSYSTEM_IID "io.github.eudahub.eudaimonia.BuildSystem/4"
+#define EUDAIMONIA_BUILDSYSTEM_IID "io.github.eudahub.eudaimonia.BuildSystem/5"
 Q_DECLARE_INTERFACE(eudaimonia::BuildSystem, EUDAIMONIA_BUILDSYSTEM_IID)
 
 #endif // EUDAIMONIA_PLUGIN_BUILDSYSTEM_H

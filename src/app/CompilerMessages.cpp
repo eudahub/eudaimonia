@@ -5,7 +5,21 @@
 
 namespace eudaimonia {
 
-std::optional<CompilerMessage> parseCompilerMessage(const QString& line) {
+std::optional<CompilerMessage> parseCompilerMessage(const QString& line, const QString& previousLine) {
+    // rustc's " --> file:line:column" under its message, and " ::: ..." of
+    // other places it names.
+    static const QRegularExpression rust(QStringLiteral(R"(^\s*(?:-->|:::)\s+(.+):(\d+):(\d+)\s*$)"));
+    const QRegularExpressionMatch place = rust.match(line);
+    if (place.hasMatch()) {
+        CompilerMessage result;
+        result.file = place.captured(1);
+        result.line = place.captured(2).toInt();
+        result.column = place.captured(3).toInt();
+        result.kind = previousLine.startsWith(QLatin1String("error"))     ? CompilerMessage::Kind::Error
+                      : previousLine.startsWith(QLatin1String("warning")) ? CompilerMessage::Kind::Warning
+                                                                          : CompilerMessage::Kind::Note;
+        return result;
+    }
     // file:line[:column]: [fatal ]error|warning|note: text; also the places
     // of "In file included from a.h:3," and of the linker's
     // "a.cpp:5:(.text+0x9): undefined reference" (a linker's name before it

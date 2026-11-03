@@ -57,13 +57,13 @@ QString canonicalPath(const QString& path) {
     return canonical.isEmpty() ? QDir::cleanPath(info.absoluteFilePath()) : canonical;
 }
 
-// Files the debuggers can stop in: C and C++ with gdb, CMake with CMake.
+// Files the debuggers can stop in: C, C++ and Rust with gdb, CMake with CMake.
 bool canHaveBreakpoints(const QString& file) {
     static const QSet<QString> suffixes{QStringLiteral("c"),   QStringLiteral("cc"),  QStringLiteral("cpp"),
                                         QStringLiteral("cxx"), QStringLiteral("c++"), QStringLiteral("h"),
                                         QStringLiteral("hh"),  QStringLiteral("hpp"), QStringLiteral("hxx"),
                                         QStringLiteral("inl"), QStringLiteral("ipp"), QStringLiteral("tpp"),
-                                        QStringLiteral("cmake")};
+                                        QStringLiteral("rs"),  QStringLiteral("cmake")};
     const QFileInfo info(file);
     return info.fileName() == QLatin1String("CMakeLists.txt") || suffixes.contains(info.suffix().toLower());
 }
@@ -653,12 +653,21 @@ void MainWindow::createBuildBar() {
     updateBuildActions();
 }
 
+QString MainWindow::directoryOf(const QString& profile) const {
+    return m_buildSystem ? m_buildSystem->buildDirectory(m_projectDirectory, buildTypeOf(profile))
+                         : QDir(m_projectDirectory).filePath(profile);
+}
+
+QString MainWindow::directoryNameOf(const QString& profile) const {
+    return QDir(m_projectDirectory).relativeFilePath(directoryOf(profile)) + QLatin1Char('/');
+}
+
 QString MainWindow::buildDirectory() const {
-    return QDir(m_projectDirectory).filePath(m_profileBox->currentData().toString());
+    return directoryOf(m_profileBox->currentData().toString());
 }
 
 QString MainWindow::buildDirectoryName() const {
-    return m_profileBox->currentData().toString() + QLatin1Char('/');
+    return directoryNameOf(m_profileBox->currentData().toString());
 }
 
 void MainWindow::chooseProfile() {
@@ -683,16 +692,18 @@ void MainWindow::setUpBuild() {
     m_targetBox->clear();
     const int profile = m_profileBox->findData(QSettings().value(profileKey(m_projectDirectory)));
     m_profileBox->setCurrentIndex(std::max(0, profile));
-    // A project the build system plugin does not know has nothing to build;
-    // without the plugin Build and Run say so when used.
-    if (auto* buildSystem = m_plugins.plugin<BuildSystem>()) {
-        if (buildSystem->recognizes(m_projectDirectory)) {
-            m_buildSystem = buildSystem;
-            configure();
-        }
-    } else if (QFileInfo(QDir(m_projectDirectory).filePath(QStringLiteral("CMakeLists.txt"))).isFile()) {
-        statusBar()->showMessage(tr("No build system plugin: the project cannot be built here"), 10000);
+    // A project no build system plugin knows has nothing to build; without
+    // any plugin Build and Run say so when used.
+    const QList<BuildSystem*> buildSystems = m_plugins.plugins<BuildSystem>();
+    for (BuildSystem* buildSystem : buildSystems) {
+        if (!buildSystem->recognizes(m_projectDirectory)) continue;
+        m_buildSystem = buildSystem;
+        configure();
+        break;
     }
+    const QDir project(m_projectDirectory);
+    if (buildSystems.isEmpty() && (project.exists(QStringLiteral("CMakeLists.txt")) || project.exists(QStringLiteral("Cargo.toml"))))
+        statusBar()->showMessage(tr("No build system plugin: the project cannot be built here"), 10000);
     updateBuildActions();
 }
 
@@ -703,8 +714,12 @@ namespace {
 // when installed).
 QString chosenBackend(const BuildSystem* buildSystem) {
     const QSettings settings;
-    if (settings.contains(QStringLiteral("build/backend"))) return settings.value(QStringLiteral("build/backend")).toString();
     const QStringList backends = buildSystem ? buildSystem->backends() : QStringList();
+    // One chosen for another build system does not count here.
+    if (settings.contains(QStringLiteral("build/backend"))) {
+        const QString chosen = settings.value(QStringLiteral("build/backend")).toString();
+        if (chosen.isEmpty() || !buildSystem || backends.contains(chosen)) return chosen;
+    }
     return backends.isEmpty() ? QString() : backends.first();
 }
 
@@ -719,7 +734,14 @@ int linkJobs() {
 void MainWindow::fillBackendMenu() {
     m_backendMenu->clear();
     auto* group = new QActionGroup(m_backendMenu);
-    BuildSystem* buildSystem = m_buildSystem ? m_buildSystem : m_plugins.plugin<BuildSystem>();
+    // The open project's, else what every build system has.
+    BuildSystem* buildSystem = m_buildSystem;
+    QStringList backends;
+    if (buildSystem) {
+        backends = buildSystem->backends();
+    } else {
+        for (const BuildSystem* one : m_plugins.plugins<BuildSystem>()) backends += one->backends();
+    }
     const QString chosen = chosenBackend(buildSystem);
     auto add = [&](const QString& text, const QString& backend) {
         QAction* action = m_backendMenu->addAction(text, this, [this, backend] { chooseBackend(backend); });
@@ -728,8 +750,7 @@ void MainWindow::fillBackendMenu() {
         group->addAction(action);
     };
     add(buildSystem ? tr("%1's Own Default").arg(buildSystem->name()) : tr("Default"), QString());
-    if (buildSystem)
-        for (const QString& backend : buildSystem->backends()) add(backend, backend);
+    for (const QString& backend : std::as_const(backends)) add(backend, backend);
     // Compiling uses every processor; links, which take much memory, fewer.
     m_backendMenu->addSeparator();
     m_backendMenu->addAction(tr("Links at once (Ninja):"))->setEnabled(false);
@@ -842,25 +863,25 @@ void MainWindow::configure(bool switchBackend) {
     });
 }
 
-BuildCommand MainWindow::configureCommand(const QString& directoryName, bool switchBackend, QString* done) {
-    const QString directory = QDir(m_projectDirectory).filePath(directoryName);
+BuildCommand MainWindow::configureCommand(const QString& profile, bool switchBackend, QString* done) {
+    const QString directory = directoryOf(profile);
     // A configured build directory keeps its build tool unless asked to switch.
     const QString configured = m_buildSystem->configuredBackend(directory);
     const QString chosen = chosenBackend(m_buildSystem);
     *done = tr("Configured %1").arg(QFileInfo(m_projectDirectory).fileName());
     if (!configured.isEmpty() && !chosen.isEmpty() && configured != chosen && !switchBackend)
-        *done = tr("%1/ uses %2, not %3: Build → Build Tool switches it").arg(directoryName, configured, chosen);
+        *done = tr("%1 uses %2, not %3: Build → Build Tool switches it").arg(directoryNameOf(profile), configured, chosen);
     ConfigureOptions options;
     options.backend = configured.isEmpty() || switchBackend ? chosen : QString();
     options.linkJobs = linkJobs();
-    options.buildType = buildTypeOf(directoryName);
+    options.buildType = buildTypeOf(profile);
     return m_buildSystem->configureCommand(m_projectDirectory, directory, options);
 }
 
-void MainWindow::configureDirectory(const QString& directoryName, bool switchBackend, std::function<void(bool)> then) {
+void MainWindow::configureDirectory(const QString& profile, bool switchBackend, std::function<void(bool)> then) {
     if (!m_buildSystem || m_configuring) return;
     QString done;
-    const BuildCommand command = configureCommand(directoryName, switchBackend, &done);
+    const BuildCommand command = configureCommand(profile, switchBackend, &done);
     auto* process = new QProcess(this);
     m_configuring = process;
     process->setProcessChannelMode(QProcess::MergedChannels);
@@ -930,7 +951,7 @@ void MainWindow::updateBuildActions() {
     if (!m_debugAction) return;  // the debugging's actions come later
     // Without the plugin they say so when used.
     m_debugAction->setEnabled(idle && !debugging && m_targetBox->count() > 0);
-    m_debugConfigureAction->setEnabled(idle && !debugging);
+    m_debugConfigureAction->setEnabled(idle && !debugging && m_buildSystem->canDebugConfigure());
     m_resumeAction->setEnabled(debugging && m_debugStopped);
     m_stepOverAction->setEnabled(debugging && m_debugStopped);
     m_stepInAction->setEnabled(debugging && m_debugStopped);
@@ -995,7 +1016,7 @@ void MainWindow::createDebugging() {
     };
     m_debugAction = debug->addAction(QIcon(QStringLiteral(":/icons/ladybug.svg")), tr("&Debug"), this, &MainWindow::debugTarget);
     m_debugAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F9));
-    m_debugAction->setToolTip(tr("Build the chosen target in build-debug and debug it (Shift+F9)"));
+    m_debugAction->setToolTip(tr("Build the chosen target with debug information and debug it (Shift+F9)"));
     m_debugConfigureAction = debug->addAction(tr("Debug CMake &Configure"), this, &MainWindow::debugConfigure);
     m_debugConfigureAction->setToolTip(tr("Configure the project in CMake's debugger: breakpoints in CMakeLists.txt"));
     debug->addSeparator();
@@ -1043,17 +1064,17 @@ void MainWindow::debugTarget() {
     if (!m_buildSystem || m_buildPanel->isRunning() || !canDebug(DebugRequest::Kind::Program) || !saveAll()) return;
     const QString name = m_targetBox->currentText();
     if (name.isEmpty()) return;
-    const QString directoryName = QStringLiteral("build-debug");
-    configureDirectory(directoryName, false, [this, name, directoryName](bool configured) {
-        if (m_buildSystem && directoryName == m_profileBox->currentData().toString()) loadTargets();
+    const QString profile = QStringLiteral("build-debug");
+    configureDirectory(profile, false, [this, name, profile](bool configured) {
+        if (m_buildSystem && profile == m_profileBox->currentData().toString()) loadTargets();
         if (!configured || !m_buildSystem) return;
-        const QString directory = QDir(m_projectDirectory).filePath(directoryName);
+        const QString directory = directoryOf(profile);
         QString error;
         QString program;
         for (const BuildTarget& target : m_buildSystem->targets(directory, &error))
             if (target.name == name) program = target.executable;
         if (program.isEmpty()) {
-            statusBar()->showMessage(error.isEmpty() ? tr("%1 is not a target of %2/").arg(name, directoryName) : error, 10000);
+            statusBar()->showMessage(error.isEmpty() ? tr("%1 is not a target of %2").arg(name, directoryNameOf(profile)) : error, 10000);
             return;
         }
         m_debugAfterBuild = program;

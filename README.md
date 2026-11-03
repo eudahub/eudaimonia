@@ -149,13 +149,22 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   take much memory, run together — with Ninja only (a job pool:
   `CMAKE_JOB_POOLS`, `CMAKE_JOB_POOL_LINK`); make's `-j` counts every job
   alike. "As many as compiling" removes only that pool.
+- **Rust projects** (one with `Cargo.toml`, the Cargo plugin) are built the
+  same way with `cargo build`: the list holds the programs and examples, read
+  from `cargo metadata`; **Default** and **Debug** build into `target/debug`,
+  **Release** into `target/release`. A click on rustc's ` --> src/main.rs:2:18`
+  opens the place, Rebuild Project is `cargo clean` for that profile and a
+  build, and Compile Threads is `--jobs`. There is nothing to configure:
+  Configure Project checks the manifest. A project with both `Cargo.toml` and
+  `CMakeLists.txt` is taken for a Cargo one.
 - **Debugging** (the debugger plugin; gdb 14 or later, for CMake 3.27 or
-  later): C, C++ and CMake files have a column beside the line numbers where
+  later): C, C++, Rust and CMake files have a column beside the line numbers where
   a click sets or removes a **breakpoint**. Breakpoints stay on their code
   through edits and are remembered for the project. **Debug** (ladybug,
   Shift+F9) saves the modified files, configures and builds the chosen target
-  in `build-debug` whatever the profile, since breakpoints need debug
-  information, and starts it under gdb in the **Debug panel**, which has the
+  in `build-debug` (for Rust `target/debug`) whatever the profile, since
+  breakpoints need debug information, and starts it under gdb (with Rust's
+  pretty printers, when `rustc` is installed) in the **Debug panel**, which has the
   call stack (a click shows that frame and its variables), the variables,
   whose members are asked for when opened, and what the program writes, line
   by line (through `stdbuf`, when installed); there is no standard input yet,
@@ -187,13 +196,16 @@ the directories in `EUDAIMONIA_PLUGIN_PATH` (separated by `:`),
 `lib/eudaimonia/plugins` next to `bin` when installed, and `plugins` next to
 the executable in the build tree. At start only the interface ID (IID) of
 each plugin file is read; a plugin is loaded when its interface is first
-needed. When two files provide the same interface, the first one found is
-used.
+needed. A file named as one found earlier is left out, so an installed plugin
+goes before the build tree's. Several files may provide one interface, e.g.
+one build system each: the first that recognizes a project builds it.
 
 Eudaimonia's own plugin interfaces are headers in `api/` (CMake target
 `eudaimonia::plugin-api`), with IIDs `io.github.eudahub.eudaimonia.<Interface>/<n>`;
 its plugins are in `plugins/`:
 
+- `eudaimonia-cargo` (`eudaimonia::BuildSystem`): Rust projects — `cargo
+  metadata` for the targets and the target directory, `cargo build` to build.
 - `eudaimonia-cmake` (`eudaimonia::BuildSystem`): CMake projects — the
   command configuring a project (`cmake -S <project> -B <build>`, with only
   the generator and the link pool the IDE asks for, and

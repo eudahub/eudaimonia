@@ -27,9 +27,9 @@ namespace {
 
 // The message of a line of the output; the command shown first ("$ ...")
 // is none, whatever its words.
-std::optional<CompilerMessage> messageOf(const QString& line) {
-    if (line.startsWith(QLatin1String("$ "))) return std::nullopt;
-    return parseCompilerMessage(line);
+std::optional<CompilerMessage> messageOf(const QTextBlock& block) {
+    if (block.text().startsWith(QLatin1String("$ "))) return std::nullopt;
+    return parseCompilerMessage(block.text(), block.previous().text());
 }
 
 // Errors in red, warnings in amber, notes muted: the lines one can click.
@@ -39,7 +39,7 @@ public:
 
 protected:
     void highlightBlock(const QString& text) override {
-        const auto message = messageOf(text);
+        const auto message = messageOf(currentBlock());
         if (!message) return;
         QTextCharFormat format;
         format.setFontUnderline(true);
@@ -212,7 +212,7 @@ void BuildPanel::end(int exitCode, bool crashed) {
     int errors = 0;
     int warnings = 0;
     for (QTextBlock block = m_output->document()->begin(); block.isValid(); block = block.next()) {
-        const auto message = messageOf(block.text());
+        const auto message = messageOf(block);
         if (!message) continue;
         if (message->kind == CompilerMessage::Kind::Error) ++errors;
         else if (message->kind == CompilerMessage::Kind::Warning) ++warnings;
@@ -236,7 +236,7 @@ QString BuildPanel::messageFileAt(const QPoint& position, int* line, int* column
     QTextCursor end(block);
     end.movePosition(QTextCursor::EndOfBlock);
     if (position.x() > m_output->cursorRect(end).right()) return {};
-    const auto message = messageOf(block.text());
+    const auto message = messageOf(block);
     if (!message) return {};
     *line = message->line;
     *column = message->column;

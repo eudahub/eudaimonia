@@ -104,13 +104,13 @@ private:
     // Configures the chosen profile's directory ("cmake -S . -B build") in
     // the background, then reads its targets.
     void configure(bool switchBackend = false);
-    // Configures a build directory of the project, then tells whether it
+    // Configures the build directory of a profile, then tells whether it
     // went well.
-    void configureDirectory(const QString& directoryName, bool switchBackend, std::function<void(bool)> then);
+    void configureDirectory(const QString& profile, bool switchBackend, std::function<void(bool)> then);
     // The command for it: with the chosen build tool (setting "build/backend")
     // when the directory is new or `switchBackend`, else with the one it has;
     // `done` is what to say when it worked.
-    BuildCommand configureCommand(const QString& directoryName, bool switchBackend, QString* done);
+    BuildCommand configureCommand(const QString& profile, bool switchBackend, QString* done);
     // Build → Build Tool: the build system's default or one of its tools.
     void fillBackendMenu();
     void chooseBackend(const QString& backend);
@@ -132,9 +132,13 @@ private:
     // a program still running in the panel is stopped first.
     void runProgram(const QString& program, const QString& name);
     void updateBuildActions();
-    // <project>/build, build-debug or build-release, by the chosen profile.
+    // A profile's build directory, as the build system has it (CMake's
+    // <project>/build, build-debug and build-release), and how messages name
+    // it, e.g. "build/".
+    QString directoryOf(const QString& profile) const;
+    QString directoryNameOf(const QString& profile) const;
+    // Those of the chosen profile.
     QString buildDirectory() const;
-    // Its name, for messages: "build/".
     QString buildDirectoryName() const;
 
     // Debugging (the debugger plugin), with breakpoints kept for each project

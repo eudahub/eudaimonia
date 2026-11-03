@@ -54,6 +54,16 @@ public:
         return QFileInfo(QDir(projectDir).filePath(QStringLiteral("CMakeLists.txt"))).isFile();
     }
 
+    QString buildDirectory(const QString& projectDir, const QString& buildType) const override
+    {
+        const QDir project(projectDir);
+        if (buildType == QLatin1String("Debug")) return project.filePath(QStringLiteral("build-debug"));
+        if (buildType == QLatin1String("Release")) return project.filePath(QStringLiteral("build-release"));
+        return project.filePath(QStringLiteral("build"));
+    }
+
+    bool canDebugConfigure() const override { return true; }
+
     QStringList backends() const override
     {
         // The generators whose build tool is installed; Ninja first: faster

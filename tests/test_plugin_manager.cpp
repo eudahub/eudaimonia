@@ -4,6 +4,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QPluginLoader>
 #include <QTemporaryDir>
 #include <QTest>
@@ -16,6 +17,7 @@ class TestPluginManager : public QObject {
 
 private:
     QTemporaryDir m_notPlugins;
+    QTemporaryDir m_copies;
     const QString m_first = QStringLiteral(TEST_PLUGIN_DIR "/first");
     const QString m_second = QStringLiteral(TEST_PLUGIN_DIR "/second");
 
@@ -32,7 +34,7 @@ private:
 
 private slots:
     void initTestCase() {
-        QVERIFY(m_notPlugins.isValid());
+        QVERIFY(m_notPlugins.isValid() && m_copies.isValid());
         QFile fake(m_notPlugins.filePath("libfake.so"));
         QVERIFY(fake.open(QIODevice::WriteOnly));
         fake.write("not an ELF object");
@@ -52,7 +54,7 @@ private slots:
         const QString second = pluginFile(m_second);
         QVERIFY(!first.isEmpty() && !second.isEmpty());
         QVERIFY(reportHas(plugins, first + ": " TestInterface_iid));
-        QVERIFY(reportHas(plugins, second + ": " TestInterface_iid ", not used: " + first + " provides it"));
+        QVERIFY(reportHas(plugins, second + ": " TestInterface_iid));
         QVERIFY(reportHas(plugins, m_notPlugins.filePath("libfake.so") + ": not a Qt plugin"));
     }
 
@@ -65,6 +67,23 @@ private slots:
         QCOMPARE(plugin->name(), QStringLiteral("first"));
         QVERIFY(QPluginLoader(first).isLoaded());
         QVERIFY(!QPluginLoader(pluginFile(m_second)).isLoaded());
+    }
+
+    // Several files may provide an interface; a file named as an earlier one
+    // (an installed plugin and the build tree's) is left out.
+    void givesEveryPluginOfAnInterfaceOnce() {
+        const QString first = pluginFile(m_first);
+        const QString copy = m_copies.filePath(QFileInfo(first).fileName());
+        QVERIFY(QFile::copy(first, copy));
+        const QByteArray path = qgetenv("EUDAIMONIA_PLUGIN_PATH");
+        qputenv("EUDAIMONIA_PLUGIN_PATH", path + ':' + m_copies.path().toUtf8());
+        PluginManager plugins;
+        QVERIFY(reportHas(plugins, copy + ": " TestInterface_iid ", not used: " + first + " goes first"));
+        const QList<TestInterface*> all = plugins.plugins<TestInterface>();
+        QCOMPARE(all.size(), 2);
+        QCOMPARE(all.at(0)->name(), QStringLiteral("first"));
+        QCOMPARE(all.at(1)->name(), QStringLiteral("second"));
+        qputenv("EUDAIMONIA_PLUGIN_PATH", path);
     }
 
     void missingInterface() {

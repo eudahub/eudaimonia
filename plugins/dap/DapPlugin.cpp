@@ -13,6 +13,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
+#include <QProcess>
 #include <QStandardPaths>
 #include <QTimer>
 
@@ -26,6 +27,22 @@ bool isExecutableProgram(const QString& path) {
     if (!QFileInfo(path).isExecutable()) return false;
     QFile file(path);
     return file.open(QIODevice::ReadOnly) && file.read(4) == QByteArray("\x7f" "ELF");
+}
+
+// What rust-gdb gives gdb, so that a Vec or a String shows its contents: the
+// place of the pretty printers a Rust program asks gdb to load. None without
+// rustc; other programs ask for nothing from there.
+QStringList rustPrinterArguments() {
+    static const QStringList arguments = [] {
+        QProcess rustc;
+        rustc.start(QStringLiteral("rustc"), {QStringLiteral("--print"), QStringLiteral("sysroot")});
+        if (!rustc.waitForFinished(5000) || rustc.exitCode() != 0) return QStringList();
+        const QString printers = QString::fromLocal8Bit(rustc.readAllStandardOutput()).trimmed() + QStringLiteral("/lib/rustlib/etc");
+        if (!QFileInfo(printers).isDir()) return QStringList();
+        return QStringList{QStringLiteral("--directory=") + printers, QStringLiteral("-iex"),
+                           QStringLiteral("add-auto-load-safe-path ") + printers};
+    }();
+    return arguments;
 }
 
 } // namespace
@@ -88,8 +105,8 @@ public:
         } else {
             // The program named at once: its symbols are known when the
             // breakpoints come, which then need not wait.
-            const QStringList gdb{QStringLiteral("gdb"), QStringLiteral("-i"), QStringLiteral("dap"), QStringLiteral("-q"),
-                                  request.program};
+            const QStringList gdb = QStringList{QStringLiteral("gdb"), QStringLiteral("-i"), QStringLiteral("dap"), QStringLiteral("-q")}
+                                    + rustPrinterArguments() + QStringList{request.program};
             // C's stdio holds back what a program writes into a pipe; stdbuf
             // (when installed), which the program inherits from gdb, makes it
             // come line by line, as one steps through it.

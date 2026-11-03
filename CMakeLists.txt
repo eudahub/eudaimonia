@@ -56,6 +56,7 @@ FetchContent_MakeAvailable(siplasplas_plugins)
 
 # Eudaimonia's own plugin interfaces and plugins.
 add_subdirectory(api)
+add_subdirectory(plugins/cargo)
 add_subdirectory(plugins/cmake)
 add_subdirectory(plugins/lsp)
 add_subdirectory(plugins/dap)
@@ -87,7 +88,7 @@ target_compile_definitions(eudaimonia PRIVATE
     EUDAIMONIA_VERSION="${PROJECT_VERSION}"
     EUDAIMONIA_PLUGIN_DIR_FROM_BIN="${EUDAIMONIA_PLUGIN_DIR_FROM_BIN}")
 target_link_libraries(eudaimonia PRIVATE Qt6::Widgets qt-extra siplasplas::plugin-api eudaimonia::plugin-api)
-add_dependencies(eudaimonia eudaimonia-cmake eudaimonia-lsp eudaimonia-dap)
+add_dependencies(eudaimonia eudaimonia-cargo eudaimonia-cmake eudaimonia-lsp eudaimonia-dap)
 
 # Help → About names the commit built and its time, and those of the
 # components built in, so that it is plain which versions a build uses:
@@ -239,7 +240,7 @@ if(EUDAIMONIA_BUILD_TESTS)
         FAKE_SERVER="${CMAKE_SOURCE_DIR}/tests/lsp/fake_server.py")
     target_link_libraries(test_main_window PRIVATE
         Qt6::Widgets Qt6::Test qt-extra siplasplas::plugin-api eudaimonia::plugin-api)
-    add_dependencies(test_main_window eudaimonia_build_info spp-editor spp-findbar eudaimonia-cmake eudaimonia-lsp eudaimonia-dap)
+    add_dependencies(test_main_window eudaimonia_build_info spp-editor spp-findbar eudaimonia-cargo eudaimonia-cmake eudaimonia-lsp eudaimonia-dap)
     add_test(NAME main_window COMMAND test_main_window)
     set_tests_properties(main_window PROPERTIES TIMEOUT 60)
 
