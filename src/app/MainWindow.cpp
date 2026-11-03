@@ -4,6 +4,8 @@
 #include "BuildMonitor.h"
 #include "BuildPanel.h"
 #include "DebugPanel.h"
+#include "NewProjectDialog.h"
+#include "ProjectTemplates.h"
 #include "RunPanel.h"
 #include "Terminal.h"
 #include "build_info.h"
@@ -200,12 +202,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
     auto* openButton = new QPushButton(tr("Open Project Directory..."));
     connect(openButton, &QPushButton::clicked, this, &MainWindow::chooseProject);
+    auto* newButton = new QPushButton(tr("New Project..."));
+    connect(newButton, &QPushButton::clicked, this, &MainWindow::newProject);
     auto* start = new QWidget;
     auto* startLayout = new QVBoxLayout(start);
     startLayout->setContentsMargins(0, 0, 0, 0);
     startLayout->addWidget(new QLabel(tr("Recent projects")));
     startLayout->addWidget(m_recentList, 1);
     startLayout->addWidget(openButton);
+    startLayout->addWidget(newButton);
 
     m_side = new QStackedWidget;
     m_side->addWidget(start);
@@ -292,6 +297,7 @@ MainWindow::~MainWindow() {
 
 void MainWindow::createMenus() {
     QMenu* file = menuBar()->addMenu(tr("&File"));
+    file->addAction(tr("&New Project..."), this, &MainWindow::newProject)->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N));
     QAction* openProject = file->addAction(tr("Open &Project Directory..."), this, &MainWindow::chooseProject);
     openProject->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
     QAction* openFile = file->addAction(tr("&Open File..."), this, &MainWindow::chooseFile);
@@ -1594,6 +1600,23 @@ void MainWindow::chooseProject() {
     const QString directory =
         QxFileDialog::getExistingDirectory(this, tr("Open Project Directory"), start, m_recent.paths());
     if (!directory.isEmpty()) openProject(directory);
+}
+
+void MainWindow::newProject() {
+    QSettings settings;
+    // Where the last one went, else beside the open project, else at home.
+    const QString beside = m_projectDirectory.isEmpty() ? QDir::homePath() : QFileInfo(m_projectDirectory).absolutePath();
+    NewProjectDialog dialog(settings.value(QStringLiteral("newProject/location"), beside).toString(), this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    QString error;
+    if (!createProject(dialog.chosenTemplate(), dialog.directory(), dialog.name(), &error)) {
+        QMessageBox::warning(this, tr("New Project"), error);
+        return;
+    }
+    settings.setValue(QStringLiteral("newProject/location"), dialog.location());
+    if (!openProject(dialog.directory())) return;
+    openFile(QDir(dialog.directory()).filePath(dialog.chosenTemplate().mainFile));
+    if (!m_buildSystem) statusBar()->showMessage(tr("No build system plugin for this kind of project yet: it cannot be built here"), 10000);
 }
 
 void MainWindow::chooseFile() {

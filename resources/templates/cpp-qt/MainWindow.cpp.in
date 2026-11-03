@@ -1,0 +1,18 @@
+#include "MainWindow.h"
+
+#include <QKeySequence>
+#include <QLabel>
+#include <QMenu>
+#include <QMenuBar>
+
+MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
+    setWindowTitle(QStringLiteral("@NAME@"));
+    auto* label = new QLabel(tr("Hello from @NAME@!"));
+    label->setAlignment(Qt::AlignCenter);
+    setCentralWidget(label);
+
+    QMenu* file = menuBar()->addMenu(tr("&File"));
+    file->addAction(tr("&Quit"), this, &QWidget::close)->setShortcut(QKeySequence::Quit);
+
+    resize(800, 600);
+}

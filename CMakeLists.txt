@@ -75,6 +75,10 @@ add_executable(eudaimonia
     src/app/MainWindow.h
     src/app/NavigationHistory.cpp
     src/app/NavigationHistory.h
+    src/app/NewProjectDialog.cpp
+    src/app/NewProjectDialog.h
+    src/app/ProjectTemplates.cpp
+    src/app/ProjectTemplates.h
     src/app/PluginManager.cpp
     src/app/PluginManager.h
     src/app/RecentProjects.cpp
@@ -231,8 +235,9 @@ if(EUDAIMONIA_BUILD_TESTS)
     # The main window with the real plugins, driven by keys.
     add_executable(test_main_window tests/test_main_window.cpp
         src/app/BuildMonitor.cpp src/app/BuildPanel.cpp src/app/CompilerMessages.cpp src/app/DebugPanel.cpp
-        src/app/MainWindow.cpp src/app/NavigationHistory.cpp src/app/PluginManager.cpp src/app/RecentProjects.cpp src/app/RunPanel.cpp
-        src/app/Terminal.cpp)
+        src/app/MainWindow.cpp src/app/NavigationHistory.cpp src/app/NewProjectDialog.cpp src/app/PluginManager.cpp
+        src/app/ProjectTemplates.cpp src/app/RecentProjects.cpp src/app/RunPanel.cpp src/app/Terminal.cpp
+        resources/eudaimonia.qrc)
     target_include_directories(test_main_window PRIVATE src/app ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_main_window PRIVATE
         EUDAIMONIA_VERSION="${PROJECT_VERSION}"

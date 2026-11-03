@@ -51,6 +51,14 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   with unsaved changes asks first. A reload is one undo step: Ctrl+Z brings
   the text before it back.
 - The status bar shows the cursor's line and column and the file's encoding.
+- **File → New Project** (Ctrl+Shift+N, also a button beside the recent
+  projects) makes a project from a template in a new directory, which must not
+  exist yet, and opens it: a C++ console program, a C++ program with a Qt
+  window, a Rust program, a Rust library, a C++ program with Meson, a Java
+  program with Maven or with Gradle, a Python program, a JavaScript program.
+  The templates are in the program's resources. Only CMake and Cargo can be
+  built in the IDE so far: the others are for editing, and for building from a
+  terminal, until they have plugins.
 - **Language servers** check the code as it is typed (the language support
   plugin, below): clangd for C and C++, neocmakelsp for CMake files,
   rust-analyzer for Rust, pylsp for Python, and those of

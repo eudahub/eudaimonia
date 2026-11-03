@@ -4,5 +4,34 @@
         <file>icons/hammer.svg</file>
         <file>icons/run.svg</file>
         <file>icons/ladybug.svg</file>
+        <file>templates/cpp-console/CMakeLists.txt.in</file>
+        <file>templates/cpp-console/gitignore.in</file>
+        <file>templates/cpp-console/main.cpp.in</file>
+        <file>templates/cpp-meson/gitignore.in</file>
+        <file>templates/cpp-meson/main.cpp.in</file>
+        <file>templates/cpp-meson/meson.build.in</file>
+        <file>templates/cpp-qt/CMakeLists.txt.in</file>
+        <file>templates/cpp-qt/MainWindow.cpp.in</file>
+        <file>templates/cpp-qt/MainWindow.h.in</file>
+        <file>templates/cpp-qt/gitignore.in</file>
+        <file>templates/cpp-qt/main.cpp.in</file>
+        <file>templates/java-gradle/build.gradle.in</file>
+        <file>templates/java-gradle/gitignore.in</file>
+        <file>templates/java-gradle/settings.gradle.in</file>
+        <file>templates/java-gradle/src/main/java/app/Main.java.in</file>
+        <file>templates/java-maven/gitignore.in</file>
+        <file>templates/java-maven/pom.xml.in</file>
+        <file>templates/java-maven/src/main/java/app/Main.java.in</file>
+        <file>templates/javascript/gitignore.in</file>
+        <file>templates/javascript/index.js.in</file>
+        <file>templates/javascript/package.json.in</file>
+        <file>templates/python/gitignore.in</file>
+        <file>templates/python/main.py.in</file>
+        <file>templates/rust-library/Cargo.toml.in</file>
+        <file>templates/rust-library/gitignore.in</file>
+        <file>templates/rust-library/src/lib.rs.in</file>
+        <file>templates/rust-program/Cargo.toml.in</file>
+        <file>templates/rust-program/gitignore.in</file>
+        <file>templates/rust-program/src/main.rs.in</file>
     </qresource>
 </RCC>

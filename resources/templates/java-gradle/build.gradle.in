@@ -1,0 +1,10 @@
+plugins {
+    id 'application'
+}
+
+group = 'app'
+version = '0.1.0'
+
+application {
+    mainClass = 'app.Main'
+}

@@ -70,6 +70,8 @@ private:
 
     void createMenus();
     void chooseProject();
+    // Makes a project from a template in a new directory, and opens it.
+    void newProject();
     void chooseFile();
     void updateRecentProjects();
     void updateTitle();
