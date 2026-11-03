@@ -154,7 +154,8 @@ files in tabs, and builds and runs CMake projects in a terminal window.
   from `cargo metadata`; **Default** and **Debug** build into `target/debug`,
   **Release** into `target/release`. A click on rustc's ` --> src/main.rs:2:18`
   opens the place, Rebuild Project is `cargo clean` for that profile and a
-  build, and Compile Threads is `--jobs`. There is nothing to configure:
+  build, and Compile Threads is `--jobs`. Programs run and are debugged in the
+  project's directory, as with `cargo run`. There is nothing to configure:
   Configure Project checks the manifest. A project with both `Cargo.toml` and
   `CMakeLists.txt` is taken for a Cargo one.
 - **Debugging** (the debugger plugin; gdb 14 or later, for CMake 3.27 or

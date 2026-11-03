@@ -54,6 +54,9 @@ struct BuildTarget {
     QString type;
     // The program built, for an executable: an absolute path; else empty.
     QString executable;
+    // Where the program runs, as the build tool's own run does it; empty: in
+    // the directory of the program.
+    QString runDirectory;
 };
 
 class BuildSystem {
@@ -100,7 +103,7 @@ public:
 
 } // namespace eudaimonia
 
-#define EUDAIMONIA_BUILDSYSTEM_IID "io.github.eudahub.eudaimonia.BuildSystem/5"
+#define EUDAIMONIA_BUILDSYSTEM_IID "io.github.eudahub.eudaimonia.BuildSystem/6"
 Q_DECLARE_INTERFACE(eudaimonia::BuildSystem, EUDAIMONIA_BUILDSYSTEM_IID)
 
 #endif // EUDAIMONIA_PLUGIN_BUILDSYSTEM_H

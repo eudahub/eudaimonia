@@ -130,7 +130,7 @@ private:
     void buildFinished(bool success);
     // Runs the program in the Run panel, or in a terminal (Run in Terminal);
     // a program still running in the panel is stopped first.
-    void runProgram(const QString& program, const QString& name);
+    void runProgram(const QString& program, const QString& name, const QString& runDirectory);
     void updateBuildActions();
     // A profile's build directory, as the build system has it (CMake's
     // <project>/build, build-debug and build-release), and how messages name
@@ -231,6 +231,7 @@ private:
     // The program to run once the one running in the panel has stopped.
     QString m_pendingProgram;
     QString m_pendingName;
+    QString m_pendingDirectory;
 
     QToolBar* m_buildBar = nullptr;
     Debugger* m_debugger = nullptr;
@@ -268,6 +269,7 @@ private:
     // The program to run when the build in progress succeeds; empty for Build.
     QString m_runAfterBuild;
     QString m_runName;
+    QString m_runDirectory;
     QPointer<QProcess> m_configuring;
 };
 

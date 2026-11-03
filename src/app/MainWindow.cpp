@@ -641,7 +641,7 @@ void MainWindow::createBuildBar() {
         if (m_pendingProgram.isEmpty()) return;
         const QString program = m_pendingProgram;
         m_pendingProgram.clear();
-        runProgram(program, m_pendingName);
+        runProgram(program, m_pendingName, m_pendingDirectory);
     });
     m_runDock = new QDockWidget(tr("Run"), this);
     m_runDock->setObjectName(QStringLiteral("runDock"));
@@ -975,6 +975,7 @@ void MainWindow::buildAndRun(bool run) {
     const BuildCommand build = m_buildSystem->buildCommand(buildDirectory(), target ? target->name : QString(), buildOptions());
     m_runAfterBuild = run ? target->executable : QString();
     m_runName = run ? target->name : QString();
+    m_runDirectory = run ? target->runDirectory : QString();
     m_buildDock->show();
     m_buildPanel->start(build, tr("Build %1, %2").arg(target ? target->name : QFileInfo(m_projectDirectory).fileName(), threadsText()));
 }
@@ -989,12 +990,14 @@ void MainWindow::buildFinished(bool success) {
     m_debugAfterBuild.clear();
     if (!success) return;
     if (!debugged.isEmpty()) {
-        // In its build directory, as Run runs it.
-        startDebugging({DebugRequest::Kind::Program, debugged, {}, QFileInfo(debugged).absolutePath()}, m_runName);
+        // Where Run runs it.
+        startDebugging({DebugRequest::Kind::Program, debugged, {},
+                        m_runDirectory.isEmpty() ? QFileInfo(debugged).absolutePath() : m_runDirectory},
+                       m_runName);
         return;
     }
     if (program.isEmpty()) return;
-    runProgram(program, m_runName);
+    runProgram(program, m_runName, m_runDirectory);
 }
 
 void MainWindow::createDebugging() {
@@ -1071,8 +1074,11 @@ void MainWindow::debugTarget() {
         const QString directory = directoryOf(profile);
         QString error;
         QString program;
-        for (const BuildTarget& target : m_buildSystem->targets(directory, &error))
-            if (target.name == name) program = target.executable;
+        for (const BuildTarget& target : m_buildSystem->targets(directory, &error)) {
+            if (target.name != name) continue;
+            program = target.executable;
+            m_runDirectory = target.runDirectory;
+        }
         if (program.isEmpty()) {
             statusBar()->showMessage(error.isEmpty() ? tr("%1 is not a target of %2").arg(name, directoryNameOf(profile)) : error, 10000);
             return;
@@ -1202,9 +1208,9 @@ void MainWindow::clearExecution() {
     m_executionFile.clear();
 }
 
-void MainWindow::runProgram(const QString& program, const QString& name) {
-    // The program runs in its build directory, as CLion runs it.
-    const QString directory = QFileInfo(program).absolutePath();
+void MainWindow::runProgram(const QString& program, const QString& name, const QString& runDirectory) {
+    // Where the build system says, else in its build directory, as CLion runs it.
+    const QString directory = runDirectory.isEmpty() ? QFileInfo(program).absolutePath() : runDirectory;
     if (m_runInTerminal->isChecked()) {
         const QString script =
             QStringLiteral("cd %1 && %2").arg(Terminal::quote(directory), Terminal::command(program, {}));
@@ -1219,6 +1225,7 @@ void MainWindow::runProgram(const QString& program, const QString& name) {
         // Run again: the running one stops, the new one starts after it.
         m_pendingProgram = program;
         m_pendingName = name;
+        m_pendingDirectory = runDirectory;
         m_runPanel->stop();
         return;
     }

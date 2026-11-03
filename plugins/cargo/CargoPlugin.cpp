@@ -90,7 +90,8 @@ public:
                 executable = QDir(buildDir).filePath(isExample(target.kinds) ? QStringLiteral("examples/") + target.name : target.name);
             else if (!isLibrary(target.kinds))
                 continue;  // tests, benchmarks, build scripts
-            result.append({target.name, target.kinds.value(0), executable});
+            // In the project, as "cargo run" there: programs read files relative to it.
+            result.append({target.name, target.kinds.value(0), executable, executable.isEmpty() ? QString() : projectOf(buildDir)});
         }
         return result;
     }
